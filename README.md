@@ -23,3 +23,28 @@ python3 resize_and_encode.py path/to/images_dir --output-dir b64_out --sizes 512
 ```
 
 Each processed image produces one text file per size, named `<basename>_<size>.txt`, under the given output directory (mirroring subfolders for batch mode).
+
+## Python API
+
+If you’d rather call the logic programmatically, import these helpers:
+
+```python
+from resize_and_encode import (
+    configure_logging,
+    crop_and_resize_to_b64,
+    batch_images_to_b64,
+    write_b64_files,
+)
+
+# initialize logging (optional)
+configure_logging()
+
+# Single image → dict of size→base64
+b64_map = crop_and_resize_to_b64("foo.jpg", [512, 256])
+
+# Directory batch → dict of rel_path→(size→base64)
+batches = batch_images_to_b64("images_dir", [512, 256])
+
+# Persist to disk:
+write_b64_files(batches, "out_dir")
+```
