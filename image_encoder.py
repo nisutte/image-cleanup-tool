@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-resize_and_encode.py: Crop images to centered square, resize to specified sizes, and output base64-encoded JPEG strings.
+image_encoder.py: Crop images to centered square, resize to specified sizes, and output base64-encoded JPEG strings.
 
 Supports input formats JPEG, PNG, and HEIC (requires pillow-heif). Operates on a single image or recursively on a directory.
 
 Usage:
-    python3 resize_and_encode.py <input_path> --output-dir <out_dir> [--sizes 512 256]
+    python3 image_encoder.py <input_path> --output-dir <out_dir> [--sizes 512 256]
 
 Dependencies:
     pip install pillow pillow-heif

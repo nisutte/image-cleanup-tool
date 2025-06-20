@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-list_images.py: Recursively scan a directory (or single file) for images, count them by extension,
+list_image_infos.py: Recursively scan a directory (or single file) for images, count them by extension,
 and display a histogram of capture dates in the terminal.
 
 Supported image formats: JPEG, PNG, HEIC/HEIF.
