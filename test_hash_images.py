@@ -6,6 +6,8 @@ test_hash_images.py - example script to compute and print image hashes for files
 import argparse
 from pathlib import Path
 
+from log_utils import configure_logging
+
 from image_cache import compute_image_hash
 
 IMAGE_EXTS = {'.jpg', '.jpeg', '.png', '.heic', '.heif'}
@@ -19,6 +21,7 @@ def main():
         help="Path to images directory (default: 'images')"
     )
     args = parser.parse_args()
+    configure_logging()
     root = Path(args.input)
     if not root.exists():
         parser.error(f"Path '{root}' does not exist")

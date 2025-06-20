@@ -20,6 +20,14 @@ from datetime import datetime
 from typing import Dict, Optional, Tuple
 
 from PIL import Image
+try:
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+except ImportError:
+    pass
+from log_utils import get_logger
+
+logger = get_logger(__name__)
 
 # EXIF tag constants
 EXIF_TAG_DATETIME = 36867
@@ -86,9 +94,14 @@ def compute_image_hash(path: Path) -> str:
     ts = make = ''
     lat = lon = None
     size = 0
+    width = height = 0
     try:
         with Image.open(path) as img:
+            # Basic metadata (dimensions + file size)
+            width, height = img.size
+            size = path.stat().st_size
             exif = img.getexif() or {}
+
             # Use EXIF DateTimeOriginal or fall back to file modification time
             dto = exif.get(EXIF_TAG_DATETIME)
             if isinstance(dto, str):
@@ -98,8 +111,10 @@ def compute_image_hash(path: Path) -> str:
                     ts = datetime.fromtimestamp(path.stat().st_mtime).isoformat()
                 except Exception:
                     ts = ''
+
             make = exif.get(EXIF_TAG_MAKE, '') or ''
-            # Extract GPSInfo sub-IFD when available (Pillow may return int pointer otherwise)
+
+            # Extract GPSInfo sub-IFD when available
             raw_gps = None
             if hasattr(exif, 'get_ifd'):
                 try:
@@ -110,14 +125,13 @@ def compute_image_hash(path: Path) -> str:
                 raw_gps = exif.get(EXIF_TAG_GPS_INFO)
             if isinstance(raw_gps, dict):
                 lat, lon = _convert_gps(raw_gps)
-            size = path.stat().st_size
-            width, height = img.size
     except Exception:
-        width = height = 0
+        logger.debug("Error opening or parsing EXIF for %s", path, exc_info=True)
 
     # Build fingerprint string (omit model/lens, add file size)
     parts = [ts, make, str(width), str(height), str(size), str(lat), str(lon)]
     fingerprint = '|'.join(parts)
+    logger.debug("Fingerprint parts for %s: %r", path, parts)
     # Return SHA256 hex digest
     return hashlib.sha256(fingerprint.encode('utf-8')).hexdigest()
 
