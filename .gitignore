@@ -1,3 +1,11 @@
+# custom
+*.jpeg
+*.jpg
+*.heic
+*.png
+images/
+
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

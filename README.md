@@ -9,7 +9,7 @@
 Install required packages:
 
 ```bash
-pip install pillow pillow-heif
+pip install pillow pillow-heif rich
 ```
 
 ### Usage
@@ -23,6 +23,14 @@ python3 resize_and_encode.py path/to/images_dir --output-dir b64_out --sizes 512
 ```
 
 Each processed image produces one text file per size, named `<basename>_<size>.txt`, under the given output directory (mirroring subfolders for batch mode).
+
+## Listing & inspecting images
+
+After installing prerequisites, you can scan a directory (or single file) to see counts and a capture-date histogram:
+
+```bash
+python3 list_images.py path/to/images_dir
+```
 
 ## Python API
 
