@@ -34,6 +34,7 @@ from rich.progress import (
     TimeRemainingColumn,
 )
 from rich.table import Table
+from rich.columns import Columns
 
 IMAGE_EXTS = {'.jpg', '.jpeg', '.png', '.heic', '.heif'}
 EXT_COLORS = {
@@ -42,6 +43,8 @@ EXT_COLORS = {
     '.heic': 'green',    '.heif': 'green',
 }
 EXIF_TAG_DATETIME = 36867
+EXIF_TAG_MAKE = 271
+EXIF_TAG_MODEL = 272
 
 
 def iter_files(root: Path) -> Iterator[Path]:
@@ -90,6 +93,24 @@ def get_capture_datetime(path: Path) -> datetime:
     return datetime.fromtimestamp(mtime)
 
 
+def get_device(path: Path) -> str:
+    try:
+        img = Image.open(path)
+        exif = img.getexif()
+        make = exif.get(EXIF_TAG_MAKE)
+        model = exif.get(EXIF_TAG_MODEL)
+        parts = []
+        if make:
+            parts.append(str(make))
+        if model:
+            parts.append(str(model))
+        if parts:
+            return " ".join(parts)
+    except Exception:
+        pass
+    return "Unknown"
+
+
 def main():
     args = parse_args()
     console = Console()
@@ -112,6 +133,7 @@ def main():
     ext_counter: Counter[str] = Counter()
     non_image_count = 0
     date_ext_counter: dict[str, Counter[str]] = {}
+    device_counter: Counter[str] = Counter()
 
     progress = Progress(
         SpinnerColumn(),
@@ -132,6 +154,8 @@ def main():
                 dt = get_capture_datetime(path)
                 year = str(dt.year)
                 date_ext_counter.setdefault(year, Counter())[ext] += 1
+                dev = get_device(path)
+                device_counter[dev] += 1
             else:
                 non_image_count += 1
             progress.advance(task)
@@ -144,13 +168,19 @@ def main():
         summary.add_row(f"[{color}]{ext}[/{color}]", str(cnt))
     summary.add_row("[bold white]Non-image files[/]", str(non_image_count))
     summary.add_row("[bold white]Total images[/]", str(sum(ext_counter.values())))
-    console.print(summary)
+    device_table = Table(title="Image Counts by Device")
+    device_table.add_column("Device", style="magenta", justify="left")
+    device_table.add_column("Count", style="yellow", justify="right")
+    for dev, cnt in sorted(device_counter.items(), key=lambda x: x[1], reverse=True):
+        device_table.add_row(dev, str(cnt))
+    console.print()
+    console.print(Columns([summary, device_table]))
 
     if date_ext_counter:
-        console.print("\n[bold]Capture Date Histogram (YYYY):[/bold]")
+        console.print()
         totals = [sum(cnts.values()) for cnts in date_ext_counter.values()]
         max_total = max(totals) if totals else 0
-        hist = Table(show_header=False)
+        hist = Table(title="Capture Date Histogram:", show_header=False)
         hist.add_column("Year", style="green", width=8)
         hist.add_column("Bar")
         hist.add_column("Count", style="yellow", justify="right")

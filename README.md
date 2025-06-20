@@ -31,6 +31,7 @@ After installing prerequisites, you can scan a directory (or single file) to see
 ```bash
 python3 list_images.py path/to/images_dir
 ```
+The output now also includes a table of devices (camera make and model) extracted from the images' EXIF metadata, displayed beside the counts by extension.
 
 ## Python API
 
