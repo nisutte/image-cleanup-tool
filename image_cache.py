@@ -20,6 +20,7 @@ from datetime import datetime
 from typing import Dict, Optional, Tuple
 
 from PIL import Image
+from PIL.ExifTags import TAGS, GPSTAGS
 try:
     from pillow_heif import register_heif_opener
     register_heif_opener()
@@ -30,11 +31,12 @@ from log_utils import get_logger
 logger = get_logger(__name__)
 
 # EXIF tag constants
-EXIF_TAG_DATETIME = 36867
-EXIF_TAG_MAKE = 271
-EXIF_TAG_MODEL = 272
-EXIF_TAG_LENS_MODEL = 42036
-EXIF_TAG_GPS_INFO = 34853
+EXIF_TAG_DATETIME    = 36867
+EXIF_TAG_MAKE        = 271
+EXIF_TAG_MODEL       = 272
+EXIF_TAG_LENS_MODEL  = 42036
+EXIF_TAG_GPS_INFO    = 34853
+EXIF_TAG_BRIGHTNESS  = 37379  # BrightnessValue
 
 # Default cache file in working directory
 DEFAULT_CACHE_FILE = Path('.image_analysis_cache.json')
@@ -89,9 +91,9 @@ def _convert_gps(info: dict) -> Tuple[Optional[float], Optional[float]]:
     return lat, lon
 
 
-def compute_image_hash(path: Path) -> str:
+def compute_image_hash(path: Path, show_fingerprint=False) -> str:
     """Compute a deterministic hash for an image based on EXIF and basic metadata."""
-    ts = make = ''
+    ts = make = brightness = ''
     lat = lon = None
     size = 0
     width = height = 0
@@ -100,10 +102,10 @@ def compute_image_hash(path: Path) -> str:
             # Basic metadata (dimensions + file size)
             width, height = img.size
             size = path.stat().st_size
-            exif = img.getexif() or {}
-
-            # Use EXIF DateTimeOriginal or fall back to file modification time
-            dto = exif.get(EXIF_TAG_DATETIME)
+            # Raw EXIF and map tag IDs to names
+            raw = img._getexif() or {}
+            named = {TAGS.get(tid, tid): val for tid, val in raw.items()}
+            dto = named.get('DateTimeOriginal')
             if isinstance(dto, str):
                 ts = dto
             else:
@@ -112,26 +114,31 @@ def compute_image_hash(path: Path) -> str:
                 except Exception:
                     ts = ''
 
-            make = exif.get(EXIF_TAG_MAKE, '') or ''
+            make = named.get('Make', '') or ''
 
-            # Extract GPSInfo sub-IFD when available
-            raw_gps = None
-            if hasattr(exif, 'get_ifd'):
+            # BrightnessValue if available
+            bv = named.get('BrightnessValue')
+            if isinstance(bv, tuple) and len(bv) == 2:
                 try:
-                    raw_gps = exif.get_ifd(EXIF_TAG_GPS_INFO)
+                    brightness = str(bv[0] / bv[1])
                 except Exception:
-                    raw_gps = None
-            else:
-                raw_gps = exif.get(EXIF_TAG_GPS_INFO)
-            if isinstance(raw_gps, dict):
-                lat, lon = _convert_gps(raw_gps)
+                    brightness = ''
+            elif bv is not None:
+                brightness = str(bv)
+
+            # GPSInfo if present
+            gps_info = named.get('GPSInfo')
+            if isinstance(gps_info, dict):
+                lat, lon = _convert_gps(gps_info)
     except Exception:
         logger.debug("Error opening or parsing EXIF for %s", path, exc_info=True)
 
-    # Build fingerprint string (omit model/lens, add file size)
-    parts = [ts, make, str(width), str(height), str(size), str(lat), str(lon)]
+    # Build fingerprint string (omit model/lens, add file size & brightness)
+    parts = [ts, make, str(width), str(height), str(size), brightness, str(lat), str(lon)]
+    if show_fingerprint:
+        print(parts)
     fingerprint = '|'.join(parts)
-    logger.debug("Fingerprint parts for %s: %r", path, parts)
+    logger.info("Fingerprint parts for %s: %r", path, parts)
     # Return SHA256 hex digest
     return hashlib.sha256(fingerprint.encode('utf-8')).hexdigest()
 
