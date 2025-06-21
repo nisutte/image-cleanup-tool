@@ -12,6 +12,7 @@ Dependencies:
 """
 
 import argparse
+import logging
 import base64
 import io
 import os
@@ -132,12 +133,19 @@ def parse_args():
         default=[512, 256],
         help="List of output square sizes (default: 512 256)."
     )
+    parser.add_argument(
+        "--log-level",
+        choices=["debug", "info", "warning", "error", "critical", "none"],
+        default="none",
+        help="Set logging level (default: info; 'none' disables logging)"
+    )
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
-    configure_logging()
+    if args.log_level.lower() != 'none':
+        configure_logging(getattr(logging, args.log_level.upper()))
     # prepare output directory
     os.makedirs(args.output_dir, exist_ok=True)
 

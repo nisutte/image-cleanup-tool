@@ -91,7 +91,7 @@ def _convert_gps(info: dict) -> Tuple[Optional[float], Optional[float]]:
     return lat, lon
 
 
-def compute_image_hash(path: Path, show_fingerprint=False) -> str:
+def compute_image_hash(path: Path) -> str:
     """Compute a deterministic hash for an image based on EXIF and basic metadata."""
     ts = make = brightness = ''
     lat = lon = None
@@ -135,8 +135,6 @@ def compute_image_hash(path: Path, show_fingerprint=False) -> str:
 
     # Build fingerprint string (omit model/lens, add file size & brightness)
     parts = [ts, make, str(width), str(height), str(size), brightness, str(lat), str(lon)]
-    if show_fingerprint:
-        print(parts)
     fingerprint = '|'.join(parts)
     logger.info("Fingerprint parts for %s: %r", path, parts)
     # Return SHA256 hex digest
