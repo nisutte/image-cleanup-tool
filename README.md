@@ -33,6 +33,42 @@ python3 list_images.py path/to/images_dir
 ```
 The output now also includes a table of devices (camera make and model) extracted from the images' EXIF metadata, displayed beside the counts by extension.
 
+## Image Analysis with OpenAI GPT
+
+`openai_api.py` uses OpenAI's GPT-4o Vision model to analyze a single image. It sends a prompt requesting:
+1. A 3-sentence description.
+2. Scores for categories (`blurry`, `meme`, `screenshot`, `document`, `personal`, `non_personal`, `contains_faces`).
+3. A final classification (`keep`, `discard`, `unsure`).
+
+The script requires the `OPENAI_API_KEY` environment variable to be set.
+
+### CLI Usage
+```bash
+export OPENAI_API_KEY=your_api_key
+python3 openai_api.py path/to/image.jpg [size] [--log-level LEVEL]
+```
+- `path/to/image.jpg`: Path to the image file to analyze.
+- `size`: Optional integer for the square crop/resize dimension (default: 512).
+- `--log-level`: Optional logging level (`debug`, `info`, `warning`, `error`, `critical`, `none`).
+
+The output is printed as formatted JSON with these keys:
+- `description`: Textual description of the image.
+- `category_scores`: Scores for each category.
+- `final_classification`: Scores suggesting whether to keep, discard, or mark as unsure.
+
+### Python API
+```python
+import json
+from openai_api import load_and_encode_image, analyze_image
+
+# Load and encode image to a base64 string
+image_b64 = load_and_encode_image("path/to/foo.jpg", 512)
+
+# Analyze and get the result dict
+result = analyze_image(image_b64)
+print(json.dumps(result, indent=2))
+```
+
 ## Python API
 
 If you’d rather call the logic programmatically, import these helpers:
