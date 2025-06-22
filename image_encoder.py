@@ -57,7 +57,7 @@ def process_image(path, sizes):
         img_resized = img.resize((size, size), resample=resample_filter)
         buffer = io.BytesIO()
         img_resized.save(buffer, format="JPEG")
-        b64 = base64.b64encode(buffer.getvalue()).decode("ascii")
+        b64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
         results[str(size)] = b64
 
     return results
