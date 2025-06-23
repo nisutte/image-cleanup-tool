@@ -114,6 +114,7 @@ def write_b64_files(b64_map: Dict[str, Dict[str, str]], output_dir: str) -> None
 
 
 def parse_args():
+    # mainly used to test
     parser = argparse.ArgumentParser(
         description="Crop and resize input image(s) to specified square sizes and write base64-encoded JPEG strings to files."
     )
@@ -130,8 +131,8 @@ def parse_args():
         "--sizes",
         nargs="+",
         type=int,
-        default=[512, 256],
-        help="List of output square sizes (default: 512 256)."
+        default=[512],
+        help="List of output square sizes (default: 512)."
     )
     parser.add_argument(
         "--log-level",

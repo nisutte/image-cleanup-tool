@@ -30,14 +30,6 @@ from log_utils import get_logger
 
 logger = get_logger(__name__)
 
-# EXIF tag constants
-EXIF_TAG_DATETIME    = 36867
-EXIF_TAG_MAKE        = 271
-EXIF_TAG_MODEL       = 272
-EXIF_TAG_LENS_MODEL  = 42036
-EXIF_TAG_GPS_INFO    = 34853
-EXIF_TAG_BRIGHTNESS  = 37379  # BrightnessValue
-
 # Default cache file in working directory
 DEFAULT_CACHE_FILE = Path('.image_analysis_cache.json')
 

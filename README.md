@@ -29,7 +29,7 @@ Each processed image produces one text file per size, named `<basename>_<size>.t
 After installing prerequisites, launch the interactive TUI to scan a directory or single file:
 
 ```bash
-python3 list_image_infos.py path/to/images_dir
+python3 main.py path/to/images_dir
 ```
 This opens a real-time updating terminal interface featuring:
 - A progress bar showing scan progress
