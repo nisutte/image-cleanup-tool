@@ -9,7 +9,7 @@
 Install required packages:
 
 ```bash
-pip install pillow pillow-heif rich
+pip install pillow pillow-heif rich textual
 ```
 
 ### Usage
@@ -26,12 +26,18 @@ Each processed image produces one text file per size, named `<basename>_<size>.t
 
 ## Listing & inspecting images
 
-After installing prerequisites, you can scan a directory (or single file) to see counts and a capture-date histogram:
+After installing prerequisites, launch the interactive TUI to scan a directory or single file:
 
 ```bash
-python3 list_images.py path/to/images_dir
+python3 list_image_infos.py path/to/images_dir
 ```
-The output now also includes a table of devices (camera make and model) extracted from the images' EXIF metadata, displayed beside the counts by extension.
+This opens a real-time updating terminal interface featuring:
+- A progress bar showing scan progress
+- A table of image counts by extension
+- A table of image counts by device (camera make/model)
+- A capture-date histogram table
+
+Press "q" at any time to quit the interface.
 
 ## Image Analysis with OpenAI GPT
 

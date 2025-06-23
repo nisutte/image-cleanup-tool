@@ -24,24 +24,129 @@ except ImportError:
 
 from PIL import Image
 
-from rich.console import Console
-from rich.progress import (
-    Progress,
-    SpinnerColumn,
-    BarColumn,
-    TextColumn,
-    TimeElapsedColumn,
-    TimeRemainingColumn,
-)
-from rich.table import Table
-from rich.columns import Columns
+from typing import Any
+from textual.app import App, ComposeResult
+from textual.widgets import Header, Footer, DataTable, ProgressBar, Button
+from textual.containers import Horizontal
+from textual import events
+ 
+class ImageScannerApp(App):
+    """Textual app for scanning images and displaying information in real-time."""
+
+    CSS = """
+    Screen {
+        align: center middle;
+        padding: 1;
+    }
+    #tables {
+        height: 1fr;
+        width: 100%;
+    }
+    #ext_table {
+        width: 2fr;
+    }
+    #device_table {
+        width: 3fr;
+    }
+    #hist_table {
+        width: 4fr;
+    }
+    ProgressBar {
+        width: 60%;
+        margin: 1 0;
+    }
+    """
+
+    def __init__(self, root: Path, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.root = root
+        self.ext_counter: Counter[str] = Counter()
+        self.device_counter: Counter[str] = Counter()
+        self.date_ext_counter: dict[str, Counter[str]] = {}
+        self.non_image_count: int = 0
+        self.total_files: int = 0
+        self.scanned_count: int = 0
+
+    def compose(self) -> ComposeResult:
+        yield Header(show_clock=True)
+        yield ProgressBar(id="progress")
+        with Horizontal(id="tables"):
+            yield DataTable(id="ext_table")
+            yield DataTable(id="device_table")
+            yield DataTable(id="hist_table")
+        yield Button("Cleanup", id="cleanup_btn")
+        yield Footer()
+
+    async def on_mount(self) -> None:
+        self.ext_table = self.query_one("#ext_table", DataTable)
+        self.device_table = self.query_one("#device_table", DataTable)
+        self.hist_table = self.query_one("#hist_table", DataTable)
+        self.ext_table.add_columns("Extension", "Count")
+        self.device_table.add_columns("Device", "Count")
+        self.hist_table.add_columns("Year", "Bar", "Count")
+
+        # Calculate total files in background thread
+        worker = self.run_worker(self._calculate_total, name="calculate_total", thread=True)
+        await worker.wait()
+        # Configure progress bar with total file count
+        pb = self.query_one("#progress", ProgressBar)
+        pb.update(total=self.total_files)
+        # Start scanning files in background thread
+        self.run_worker(self._scan_files, name="scan_files", thread=True)
+
+    def _calculate_total(self) -> None:
+        count = 0
+        for _ in iter_files(self.root):
+            count += 1
+        self.total_files = count
+
+    def _scan_files(self) -> None:
+        for path in iter_files(self.root):
+            ext = path.suffix.lower()
+            if ext in IMAGE_EXTS:
+                self.ext_counter[ext] += 1
+                dt = get_capture_datetime(path)
+                year = str(dt.year)
+                self.date_ext_counter.setdefault(year, Counter())[ext] += 1
+                dev = get_device(path)
+                self.device_counter[dev] += 1
+            else:
+                self.non_image_count += 1
+            self.scanned_count += 1
+            if self.scanned_count % 24 == 0:
+                self.call_from_thread(self._update_ui)
+        self.call_from_thread(self._update_ui)
+        self.call_from_thread(self.notify, "Scanning complete!", title="Done")
+
+    def _update_ui(self) -> None:
+        pb = self.query_one("#progress", ProgressBar)
+        pb.update(progress=self.scanned_count)
+
+        self.ext_table.clear()
+        for ext, cnt in sorted(self.ext_counter.items()):
+            self.ext_table.add_row(ext, str(cnt))
+        self.ext_table.add_row("Non-image files", str(self.non_image_count))
+        self.ext_table.add_row("Total 50 images", str(sum(self.ext_counter.values())))
+
+        self.device_table.clear()
+        for dev, cnt in sorted(self.device_counter.items(), key=lambda x: x[1], reverse=True):
+            self.device_table.add_row(dev, str(cnt))
+
+        self.hist_table.clear()
+        totals = [sum(cnts.values()) for cnts in self.date_ext_counter.values()]
+        max_total = max(totals) if totals else 0
+        BAR_WIDTH = 30
+        for year, cnts in sorted(self.date_ext_counter.items()):
+            total_y = sum(cnts.values())
+            length_total = int(total_y / max_total * BAR_WIDTH) if max_total else 0
+            bar = "".join("█" for _ in range(length_total))
+            self.hist_table.add_row(year, bar, str(total_y))
+
+    async def on_key(self, event: events.Key) -> None:
+        if event.key == "q":
+            await self.action_quit()
 
 IMAGE_EXTS = {'.jpg', '.jpeg', '.png', '.heic', '.heif'}
-EXT_COLORS = {
-    '.jpg': 'blue', '.jpeg': 'blue',
-    '.png': 'cyan',
-    '.heic': 'green',    '.heif': 'green',
-}
 EXIF_TAG_DATETIME = 36867
 EXIF_TAG_MAKE = 271
 EXIF_TAG_MODEL = 272
@@ -113,91 +218,13 @@ def get_device(path: Path) -> str:
 
 def main():
     args = parse_args()
-    console = Console()
     root = Path(args.input)
     if not root.exists():
-        console.print(f"[red]Error:[/] Path '{root}' does not exist.")
+        print(f"Error: Path '{root}' does not exist.", file=sys.stderr)
         sys.exit(1)
+    ImageScannerApp(root).run()
+    return
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("{task.description} {task.completed} files"),
-        console=console,
-    ) as discover:
-        task_discover = discover.add_task("Discovering files...", total=None)
-        total_files = 0
-        for _ in iter_files(root):
-            total_files += 1
-            discover.advance(task_discover)
-
-    ext_counter: Counter[str] = Counter()
-    non_image_count = 0
-    date_ext_counter: dict[str, Counter[str]] = {}
-    device_counter: Counter[str] = Counter()
-
-    progress = Progress(
-        SpinnerColumn(),
-        TextColumn("Scanning files..."),
-        BarColumn(),
-        TextColumn("{task.completed}/{task.total}"),
-        TimeElapsedColumn(),
-        TimeRemainingColumn(),
-        console=console,
-    )
-    task = progress.add_task("scan", total=total_files)
-
-    with progress:
-        for path in iter_files(root):
-            ext = path.suffix.lower()
-            if ext in IMAGE_EXTS:
-                ext_counter[ext] += 1
-                dt = get_capture_datetime(path)
-                year = str(dt.year)
-                date_ext_counter.setdefault(year, Counter())[ext] += 1
-                dev = get_device(path)
-                device_counter[dev] += 1
-            else:
-                non_image_count += 1
-            progress.advance(task)
-
-    summary = Table(title="Image Counts by Extension")
-    summary.add_column("Extension", style="cyan", justify="left")
-    summary.add_column("Count", style="yellow", justify="right")
-    for ext, cnt in sorted(ext_counter.items()):
-        color = EXT_COLORS.get(ext, 'white')
-        summary.add_row(f"[{color}]{ext}[/{color}]", str(cnt))
-    summary.add_row("[bold white]Non-image files[/]", str(non_image_count))
-    summary.add_row("[bold white]Total images[/]", str(sum(ext_counter.values())))
-    device_table = Table(title="Image Counts by Device")
-    device_table.add_column("Device", style="magenta", justify="left")
-    device_table.add_column("Count", style="yellow", justify="right")
-    for dev, cnt in sorted(device_counter.items(), key=lambda x: x[1], reverse=True):
-        device_table.add_row(dev, str(cnt))
-    console.print()
-    console.print(Columns([summary, device_table]))
-
-    if date_ext_counter:
-        console.print()
-        totals = [sum(cnts.values()) for cnts in date_ext_counter.values()]
-        max_total = max(totals) if totals else 0
-        hist = Table(title="Capture Date Histogram:", show_header=False)
-        hist.add_column("Year", style="green", width=8)
-        hist.add_column("Bar")
-        hist.add_column("Count", style="yellow", justify="right")
-        BAR_WIDTH = 40
-        for year, cnts in sorted(date_ext_counter.items()):
-            total_y = sum(cnts.values())
-            length_total = int(total_y / max_total * BAR_WIDTH) if max_total else 0
-            bar_segments: list[str] = []
-            if total_y:
-                for ext, cnt in sorted(cnts.items()):
-                    seg_len = int(cnt / total_y * length_total)
-                    color = EXT_COLORS.get(ext, 'white')
-                    if seg_len:
-                        bar_segments.append(f"[{color}]" + "█" * seg_len + f"[/{color}]")
-            bar = "".join(bar_segments)
-            hist.add_row(year, bar, str(total_y))
-        console.print(hist)
 
 
 if __name__ == "__main__":
