@@ -26,7 +26,7 @@ class RateLimiter:
             self.next_allowed = now + self.interval
 
 
-class AnalysisWorkerPool:
+class WorkerPool:
     """
     Worker pool to analyze images in parallel with rate limiting.
 

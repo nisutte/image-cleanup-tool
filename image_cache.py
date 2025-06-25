@@ -3,7 +3,8 @@ image_cache.py - persistent per-image analysis cache based on metadata fingerpri
 
 Provides utilities to compute a stable hash for an image using EXIF metadata
 (creation timestamp, device make/model, lens model, dimensions, GPS) and cache
-analysis results in a JSON-backed dict to avoid reprocessing images.
+analysis results (including file path) in a JSON-backed dict to avoid
+reprocessing images.
 
 Example:
     cache = ImageCache()
@@ -141,12 +142,18 @@ class ImageCache:
         self._cache = load_cache(cache_file)
 
     def get(self, path: Path) -> Optional[str]:
-        """Return cached result string for image, or None if not present."""
+        """Return cached analysis result for image, or None if not present.
+        Cache entries also record the original file path."""
         key = compute_image_hash(path)
-        return self._cache.get(key)
+        entry = self._cache.get(key)
+        # entry may be a wrapped dict with path and result, or a legacy raw result
+        if isinstance(entry, dict) and "result" in entry:
+            return entry.get("result")
+        return entry
 
     def set(self, path: Path, result: str) -> None:
-        """Store the result string for the image and persist cache to disk."""
+        """Store the file path and analysis result for image, and persist cache to disk."""
         key = compute_image_hash(path)
-        self._cache[key] = result
+        # store both file path and analysis result under the hash key
+        self._cache[key] = {"path": str(path), "result": result}
         save_cache(self._cache, self.cache_file)

@@ -55,6 +55,9 @@ def process_image(path, sizes):
     results = {}
     for size in sizes:
         img_resized = img.resize((size, size), resample=resample_filter)
+        # Convert to RGB for JPEG (JPEG format does not support alpha channels)
+        if img_resized.mode != "RGB":
+            img_resized = img_resized.convert("RGB")
         buffer = io.BytesIO()
         img_resized.save(buffer, format="JPEG")
         b64 = base64.b64encode(buffer.getvalue()).decode("utf-8")

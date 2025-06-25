@@ -10,6 +10,17 @@ EXIF_TAG_MODEL = 272
 IMAGE_EXTS = {'.jpg', '.jpeg', '.png', '.heic', '.heif'}
 
 
+def get_final_classification_color_ratio(final_classification):
+    keep = final_classification.get("keep", 0)
+    discard = final_classification.get("discard", 0)
+    unsure = final_classification.get("unsure", 0)
+    total = keep + discard + unsure or 1
+    r = int((discard * 255 + unsure * 255) / total / 2)
+    g = int((keep * 255 + unsure * 255) / total / 2)
+    b = int((unsure * 255) / total)
+    return f"rgb({r},{g},{b})"
+
+
 def iter_files(root: Path) -> Iterator[Path]:
     """
     Recursively yield file paths under `root` using os.scandir for speed.

@@ -3,7 +3,9 @@
 *.jpg
 *.heic
 *.png
+.image_analysis_cache.json*
 images/
+.idea/
 
 
 # Byte-compiled / optimized / DLL files

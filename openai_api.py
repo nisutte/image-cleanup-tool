@@ -23,8 +23,8 @@ MODEL = "gpt-4.1-nano"
 PROMPT_TEMPLATE = """
 You help sort personal photos. For each image:
 
-1. Describe it in **3 sentences**.
-2. Return a **valid JSON**:
+1. Describe it in 3 sentences.
+2. Return a valid JSON object with the following structure, deciding if the image is worth keeping or not:
 
 {
   "description": "...",
@@ -34,15 +34,15 @@ You help sort personal photos. For each image:
   },
   "final_classification": {
     "keep": %, "discard": %, "unsure": %
-  }
+  },
 }
 
 Scoring rules:
-- High "keep" if personal or contains_faces.
+- In general, keep if it is worth keeping, discard otherwise and unsure if unsure. Classification should sum up to 100.
+- Also: High "keep" if personal or contains_faces.
 - High "discard" if blurry, meme, non_personal, screenshot, or document.
-- Use "unsure" if uncertain.
 
-Output JSON only. No explanations.
+IMPORTANT: Return ONLY a JSON object. No extra text or markdown!
 """.strip()
 
 
@@ -72,7 +72,7 @@ def analyze_image(image_b64: str) -> dict:
             model=MODEL,
             messages=messages,
             max_tokens=300,
-            temperature=0.1,
+            temperature=0.0,
         )
     except Exception as err:
         logger.error("API request failed: %s", err)
