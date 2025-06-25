@@ -78,6 +78,7 @@ def analyze_image(image_b64: str) -> dict:
         logger.error("API request failed: %s", err)
         raise RuntimeError(f"OpenAI API error: {err}")
     content = response.choices[0].message.content
+    content = content.replace("%", "")      # responses are funny sometimes
     try:
         return json.loads(content)
     except json.JSONDecodeError:

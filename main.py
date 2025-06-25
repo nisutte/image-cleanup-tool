@@ -1,317 +1,69 @@
 #!/usr/bin/env python3
-
 """
-main.py: Recursively scan a directory (or single file) for images, count them by extension,
-and display a histogram of capture dates in the terminal.
+main.py: Command-line interface for image-cleanup-tool.
 
-Supported image formats: JPEG, PNG, HEIC/HEIF.
+Runs a non-interactive scan to count images by extension and show a capture-date histogram.
+Pass --ui to launch the interactive Textual UI.
 """
 
-import argparse
 import sys
-import asyncio
-import time
+import argparse
+from pathlib import Path
 
-from collections import Counter
-
-try:
-    from pillow_heif import register_heif_opener
-
-    register_heif_opener()
-except ImportError:
-    pass
-
-from image_cache import ImageCache
-from workers import WorkerPool
-
-from typing import Any
-from textual.app import App, ComposeResult
-from textual.widgets import Header, Footer, DataTable, ProgressBar, Button, Static
-from textual.containers import Horizontal, Vertical, Grid
-from textual import events
-
-from utils import *
-
-
-class ImageScannerApp(App):
-    """Textual app for scanning images and displaying information in real-time."""
-
-    CSS_PATH = "styles.tcss"
-    def __init__(self, root: Path, **kwargs: Any) -> None:
-        self.paused = False
-        super().__init__(**kwargs)
-        self.root = root
-        self.ext_counter: Counter[str] = Counter()
-        self.device_counter: Counter[str] = Counter()
-        self.date_ext_counter: dict[str, Counter[str]] = {}
-        self.non_image_count: int = 0
-        self.total_files: int = 0
-        self.scanned_count: int = 0
-        self.image_paths: list[Path] = []
-        self.uncached_images: list[Path] = []
-        self.uncached_images: list[Path] = []
-
-    def compose(self) -> ComposeResult:
-        yield Header(show_clock=True)
-        # Section 1: Scanning overview
-        with Vertical(id="scan_section"):
-            yield ProgressBar(id="progress")
-            with Horizontal(id="tables"):
-                yield DataTable(id="ext_table")
-                yield DataTable(id="device_table")
-                yield DataTable(id="hist_table")
-        # Section 2: Cache actions
-        with Vertical(id="cache_section"):
-            yield Static("", id="cache_bar")
-            yield Button("Check Cache", id="check_cache_btn")
-        # Section 3: Analysis placeholder
-
-        with Vertical(id="analysis_section"):
-            yield Button("Cleanup", id="cleanup_btn")
-            yield Button("Pause", id="pause_btn")
-            yield Button("Continue", id="continue_btn", disabled=True)
-            yield ProgressBar(id="analysis_progress")
-            yield Static("", id="analysis_label")
-            yield Grid(id="worker_grid")
-        yield Footer()
-
-    async def on_mount(self) -> None:
-        self.ext_table = self.query_one("#ext_table", DataTable)
-        self.device_table = self.query_one("#device_table", DataTable)
-        self.hist_table = self.query_one("#hist_table", DataTable)
-        self.ext_table.add_columns("Extension", "Count")
-        self.device_table.add_columns("Device", "Count")
-        self.hist_table.add_columns("Year", "Bar", "Count")
-
-        # Calculate total files in background thread
-        worker = self.run_worker(self._calculate_total, name="calculate_total", thread=True)
-        await worker.wait()
-        # Configure progress bar with total file count
-        pb = self.query_one("#progress", ProgressBar)
-        pb.update(total=self.total_files)
-        # Hide cache bar initially and disable cache button
-        cache_bar = self.query_one("#cache_bar", Static)
-        cache_bar.visible = False
-        cache_btn = self.query_one("#check_cache_btn", Button)
-        cache_btn.disabled = True
-        # Start scanning files in background thread
-        self.run_worker(self._scan_files, name="scan_files", thread=True)
-
-        self.worker_tiles = {}
-        grid = self.query_one("#worker_grid", Grid)
-        grid.styles.grid_size_columns = 5
-        grid.styles.grid_size_rows = 5
-        grid.styles.gap = (1, 1)
-        for i in range(25):
-            tile = Static(f"Worker {i + 1}", id=f"worker_tile_{i}")
-            grid.mount(tile)
-            self.worker_tiles[i] = tile
-
-        # Hide analysis UI initially
-        analysis_pb = self.query_one("#analysis_progress", ProgressBar)
-        analysis_lbl = self.query_one("#analysis_label", Static)
-        analysis_pb.visible = False
-        analysis_lbl.visible = False
-
-    def _calculate_total(self) -> None:
-        count = 0
-        for _ in iter_files(self.root):
-            count += 1
-        self.total_files = count
-
-    def _scan_files(self) -> None:
-        for path in iter_files(self.root):
-            ext = path.suffix.lower()
-            if ext in IMAGE_EXTS:
-                self.image_paths.append(path)
-            if ext in IMAGE_EXTS:
-                self.ext_counter[ext] += 1
-                dt = get_capture_datetime(path)
-                year = str(dt.year)
-                self.date_ext_counter.setdefault(year, Counter())[ext] += 1
-                dev = get_device(path)
-                self.device_counter[dev] += 1
-            else:
-                self.non_image_count += 1
-            self.scanned_count += 1
-            if self.scanned_count % 24 == 0:
-                self.call_from_thread(self._update_ui)
-        # Final UI update and start cache verification
-        self.call_from_thread(self._update_ui)
-        self.call_from_thread(self._scan_complete)
-
-    def _update_ui(self) -> None:
-        pb = self.query_one("#progress", ProgressBar)
-        pb.update(progress=self.scanned_count)
-
-        self.ext_table.clear()
-        for ext, cnt in sorted(self.ext_counter.items()):
-            self.ext_table.add_row(ext, str(cnt))
-        self.ext_table.add_row("Non-image files", str(self.non_image_count))
-        self.ext_table.add_row("Total 50 images", str(sum(self.ext_counter.values())))
-
-        self.device_table.clear()
-        for dev, cnt in sorted(self.device_counter.items(), key=lambda x: x[1], reverse=True):
-            self.device_table.add_row(dev, str(cnt))
-
-        self.hist_table.clear()
-        totals = [sum(cnts.values()) for cnts in self.date_ext_counter.values()]
-        max_total = max(totals) if totals else 0
-        BAR_WIDTH = 30
-        for year, cnts in sorted(self.date_ext_counter.items()):
-            total_y = sum(cnts.values())
-            length_total = int(total_y / max_total * BAR_WIDTH) if max_total else 0
-            bar = "".join("█" for _ in range(length_total))
-            self.hist_table.add_row(year, bar, str(total_y))
-
-    def _scan_complete(self) -> None:
-        """Called after initial scan; notify and start cache verification."""
-        self.notify("Scanning complete!", title="Done")
-        # Enable cache check button now that scan is done
-        cache_btn = self.query_one("#check_cache_btn", Button)
-        cache_btn.disabled = False
-
-    def _check_cache(self) -> None:
-        """Worker to check which images have prior analysis in cache."""
-        cache = ImageCache()
-        scanned = 0
-        known = 0
-        self.uncached_images = []
-        for path in self.image_paths:
-            if cache.get(path) is not None:
-                known += 1
-            else:
-                self.uncached_images.append(path)
-            scanned += 1
-            self.call_from_thread(self._update_cache_bar, scanned, known)
-        self.call_from_thread(self._cache_complete, known)
-
-    def _update_cache_bar(self, scanned: int, known: int) -> None:
-        """Update the cache status bar with colored segments."""
-        bar = self.query_one("#cache_bar", Static)
-        total = len(self.image_paths)
-        # Determine segment sizes
-        BAR_WIDTH = 40
-        known_width = int((known / total) * BAR_WIDTH) if total else 0
-        uncached = scanned - known
-        uncached_width = int((uncached / total) * BAR_WIDTH) if total else 0
-        remaining_width = BAR_WIDTH - known_width - uncached_width
-        # Build colored bar
-        bar_markup = (
-                "[green]" + "█" * known_width + "[/green]"
-                + "[red]" + "█" * uncached_width + "[/red]"
-                + "[yellow]" + "█" * remaining_width + "[/yellow]"
-        )
-        # Update with bar and counts
-        bar.update(
-            f"{bar_markup}  Cached: {known}/{total}, "
-            f"Uncached: {uncached}, Remaining: {total - scanned}"
-        )
-
-    def _cache_complete(self, known: int) -> None:
-        """Notify when cache checking is finished."""
-        total_images = len(self.image_paths)
-        self.notify(f"Cache check complete: {known}/{total_images} known", title="Cache Done")
-        # Start analysis for uncached images
-        if self.uncached_images:
-            analysis_pb = self.query_one("#analysis_progress", ProgressBar)
-            analysis_lbl = self.query_one("#analysis_label", Static)
-            total = len(self.uncached_images)
-            analysis_pb.update(total=total, progress=0)
-            analysis_pb.visible = True
-            analysis_lbl.update(f"Analyzed: 0/{total}")
-            analysis_lbl.visible = True
-            # prepare a shared cache instance for analysis/UI updates
-            self.cache = ImageCache()
-            self.run_worker(self._run_analysis, name="analysis", thread=True)
-
-    def _run_analysis(self) -> None:
-        """Run analysis on uncached images in parallel and update UI."""
-        pool = WorkerPool(
-            image_paths=self.uncached_images,
-            num_workers=25,
-            requests_per_minute=60,
-            size=512,
-        )
-        # Start workers and wait for all to finish
-        pool.start()
-        pool.join()
-        total = len(self.uncached_images)
-        analyzed = 0
-        cache = self.cache
-        # Drain results as they become available
-        while analyzed < total:
-            if self.paused:
-                time.sleep(0.1)
-                continue
-            # Block briefly to wait for at least one new result
-            results = pool.get_results(block=True, timeout=0.1)
-            for path, result in results:
-                analyzed += 1
-                if not isinstance(result, Exception):
-                    cache.set(path, result)
-                self.call_from_thread(self._update_analysis_ui, analyzed, total, result)
-        self.call_from_thread(self._analysis_complete)
-
-    def _update_analysis_ui(self, analyzed: int, total: int, result: str) -> None:
-        pb = self.query_one("#analysis_progress", ProgressBar)
-        lbl = self.query_one("#analysis_label", Static)
-        pb.update(progress=analyzed)
-        lbl.update(f"Analyzed: {analyzed}/{total}")
-
-        num_workers = len(self.worker_tiles)
-        worker_id = (analyzed - 1) % num_workers
-        tile = self.worker_tiles[worker_id]
-        final = get_final_classification_color_ratio(
-            result.get("final_classification", {})
-        )
-        tile.update(f"Worker {worker_id + 1}")
-        tile.styles.background = final
-
-        original_border = tile.styles.border
-        tile.styles.border = ("solid", "white")
-        def _reset_border() -> None:
-            tile.styles.border = original_border
-
-        tile.set_interval(0.3, _reset_border)
-
-    def _analysis_complete(self) -> None:
-        self.notify("Analysis complete!", title="Done")
-
-    async def on_button_pressed(self, event: Button.Pressed) -> None:
-        """Handle button presses for cache check and cleanup."""
-        btn_id = event.button.id
-        if btn_id == "check_cache_btn":
-             cache_bar = self.query_one("#cache_bar", Static)
-             cache_bar.visible = True
-             self._update_cache_bar(0, 0)
-             self.run_worker(self._check_cache, name="check_cache", thread=True)
-
-        elif btn_id == "pause_btn":
-            self.paused = True
-            self.query_one("#pause_btn").disabled = True
-            self.query_one("#continue_btn").disabled = False
-
-        elif btn_id == "continue_btn":
-            self.paused = False
-            self.query_one("#pause_btn").disabled = False
-            self.query_one("#continue_btn").disabled = True
-
-    async def on_key(self, event: events.Key) -> None:
-        if event.key == "q":
-            await self.action_quit()
-
+from backbone import ImageScanEngine
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Scan a directory for image files, get summarization and start the cleanup when ready",
+        description="Scan a directory for image files, display counts and optionally launch the interactive UI."
     )
     parser.add_argument(
-        "input",
-        help="Path to directory of images",
+        "input", help="Path to directory of images"
+    )
+    parser.add_argument(
+        "--ui",
+        action="store_true",
+        help="Launch the interactive Textual UI instead of non-interactive CLI output",
     )
     return parser.parse_args()
 
+def print_histogram(date_ext_counter):
+    totals = [sum(cnts.values()) for cnts in date_ext_counter.values()]
+    max_total = max(totals) if totals else 0
+    BAR_WIDTH = 30
+    for year, cnts in sorted(date_ext_counter.items()):
+        total_y = sum(cnts.values())
+        length = int(total_y / max_total * BAR_WIDTH) if max_total else 0
+        bar = "█" * length
+        print(f"{year:>4} | {bar} {total_y}")
+
+def cli_run(root: Path):
+    print(f"Scanning files under {root}...")
+    engine = ImageScanEngine(root)
+    engine.calculate_total()
+    engine.scan_files()
+    print("\nImage count by extension:")
+    for ext, cnt in sorted(engine.ext_counter.items()):
+        print(f"  {ext}: {cnt}")
+    print(f"  Non-image files: {engine.non_image_count}")
+    print("\nCapture date histogram:")
+    print_histogram(engine.date_ext_counter)
+
+    engine.check_cache()
+    total = len(engine.image_paths)
+    uncached = len(engine.uncached_images)
+    cached = total - uncached
+    print(f"\nCached images: {cached}/{total}")
+    if uncached:
+        print(f"{uncached} uncached images remain; press Enter to analyze one by one.")
+        from openai_api import load_and_encode_image, analyze_image
+
+        for path in engine.uncached_images:
+            input(f"Press Enter to analyze {path.name} ({uncached - engine.uncached_images.index(path)} remaining)...")
+            print(f"Analyzing {path}...")
+            b64 = load_and_encode_image(str(path), 512)
+            result = analyze_image(b64)
+            print(f"Result: {result.get('final_classification')}")
+            engine.cache.set(path, result)
 
 def main():
     args = parse_args()
@@ -319,11 +71,15 @@ def main():
     if not root.exists():
         print(f"Error: Path '{root}' does not exist.", file=sys.stderr)
         sys.exit(1)
-    ImageScannerApp(root).run()
-    return
-
+    if args.ui:
+        try:
+            from ui_textual import ImageScannerApp
+        except ImportError:
+            print("Error: Textual UI dependencies are not installed.", file=sys.stderr)
+            sys.exit(1)
+        ImageScannerApp.run(root)
+    else:
+        cli_run(root)
 
 if __name__ == "__main__":
     main()
-
-

@@ -26,18 +26,29 @@ Each processed image produces one text file per size, named `<basename>_<size>.t
 
 ## Listing & inspecting images
 
-After installing prerequisites, launch the interactive TUI to scan a directory or single file:
+After installing prerequisites, you can perform a quick CLI scan or launch the interactive TUI.
+
+### Non-interactive CLI
+
+Scan a directory to count images by extension and display a capture-date histogram.
+The CLI will also report how many images are cached, then prompt to analyze any uncached images one by one:
 
 ```bash
 python3 main.py path/to/images_dir
 ```
-This opens a real-time updating terminal interface featuring:
-- A progress bar showing scan progress
-- A table of image counts by extension
-- A table of image counts by device (camera make/model)
-- A capture-date histogram table
 
-Press "q" at any time to quit the interface.
+### Interactive Textual UI
+
+Launch the interactive TUI (requires `textual`) to explore scan progress, counts, automatic cache checking, and image analysis in real time:
+
+```bash
+python3 main.py --ui path/to/images_dir
+```
+
+- The top pane shows scan progress and tables of extensions, devices, and capture-date histogram.
+- Once scanning completes, cache checking starts automatically with its own progress bar.
+- Use the "Analyze" switch to start/pause analysis of uncached images; results appear in the live log below.
+- Press "q" at any time to quit the interface.
 
 ## Image Analysis with OpenAI GPT
 
