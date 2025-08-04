@@ -20,7 +20,7 @@ except ImportError:
     pass
 
 from .image_cache import ImageCache
-from .workers import WorkerPool
+from .workers import AsyncWorkerPool
 from ..utils.utils import (
     iter_files,
     IMAGE_EXTS,
@@ -123,33 +123,45 @@ class ImageScanEngine:
         if self.on_cache_complete:
             self.on_cache_complete(known, len(self.image_paths))
 
-    def run_analysis(
-        self, num_workers: int = 25, requests_per_minute: int = 60, size: int = 512
+
+
+    async def run_analysis_async(
+        self, max_concurrent: int = 10, requests_per_minute: int = 60, size: int = 512
     ) -> None:
         """
-        Analyze uncached images in parallel using WorkerPool.
+        Analyze uncached images concurrently using AsyncWorkerPool.
         Calls on_analysis_progress for each result and on_analysis_complete at end.
         """
-        pool = WorkerPool(
+        if not self.uncached_images:
+            if self.on_analysis_complete:
+                self.on_analysis_complete()
+            return
+
+        pool = AsyncWorkerPool(
             image_paths=self.uncached_images,
-            num_workers=num_workers,
+            max_concurrent=max_concurrent,
             requests_per_minute=requests_per_minute,
             size=size,
         )
-        pool.start()
-        pool.join()
+        
+        # Run the analysis
+        results = await pool.analyze_all()
+        
+        # Process results and call callbacks
         total = len(self.uncached_images)
         analyzed = 0
-        while analyzed < total:
-            if self.paused:
-                time.sleep(0.1)
-                continue
-            results = pool.get_results(block=True, timeout=0.1)
-            for path, result in results:
-                analyzed += 1
-                if not isinstance(result, Exception):
-                    self.cache.set(path, result)
-                if self.on_analysis_progress:
-                    self.on_analysis_progress(path, analyzed, total, result)
+        
+        for path, analysis_result in results.items():
+            analyzed += 1
+            
+            # Cache successful results
+            if not isinstance(analysis_result.result, Exception):
+                self.cache.set(path, analysis_result.result)
+            
+            # Call progress callback
+            if self.on_analysis_progress:
+                self.on_analysis_progress(path, analyzed, total, analysis_result.result)
+        
+        # Call completion callback
         if self.on_analysis_complete:
             self.on_analysis_complete()

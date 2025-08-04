@@ -9,5 +9,12 @@ __author__ = "Nico Sutter"
 
 from .core.backbone import ImageScanEngine
 from .api.openai_api import analyze_image, load_and_encode_image
+from .core.workers import AsyncWorkerPool, analyze_images_async
 
-__all__ = ["ImageScanEngine", "analyze_image", "load_and_encode_image"] 
+__all__ = [
+    "ImageScanEngine", 
+    "analyze_image", 
+    "load_and_encode_image",
+    "AsyncWorkerPool",
+    "analyze_images_async"
+] 

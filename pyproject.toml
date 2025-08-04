@@ -9,6 +9,8 @@ dependencies = [
     "openai>=1.0.0",
     "pillow>=10.0.0",
     "pillow-heif>=0.15.0",
+    "aiohttp>=3.8.0",
+    "tenacity>=8.0.0",
 ]
 
 [project.optional-dependencies]

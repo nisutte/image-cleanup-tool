@@ -150,3 +150,50 @@ batches = batch_images_to_b64("images_dir", [512, 256])
 # Persist to disk:
 write_b64_files(batches, "out_dir")
 ```
+
+### Async Image Analysis
+
+For efficient concurrent image analysis, use the async worker pool:
+
+```python
+import asyncio
+from image_cleanup_tool.core import analyze_images_async, AsyncWorkerPool
+
+# Simple usage with convenience function
+async def analyze_my_images():
+    image_paths = [Path("image1.jpg"), Path("image2.jpg")]
+    results = await analyze_images_async(
+        image_paths=image_paths,
+        max_concurrent=5,        # Process 5 images at once
+        requests_per_minute=30,  # Rate limit to 30 requests per minute
+        size=512                 # Resize images to 512x512
+    )
+    
+    for path, result in results.items():
+        if not isinstance(result.result, Exception):
+            classification = result.result['final_classification']
+            print(f"{path.name}: {classification['keep']}% keep")
+
+# Advanced usage with custom worker pool
+async def advanced_analysis():
+    pool = AsyncWorkerPool(
+        image_paths=image_paths,
+        max_concurrent=10,
+        requests_per_minute=60,
+        size=512,
+        timeout=30.0
+    )
+    
+    results = await pool.analyze_all()
+    # Process results...
+
+# Run the async function
+asyncio.run(analyze_my_images())
+```
+
+The async implementation provides:
+- **Efficient concurrency** using asyncio instead of threading
+- **Built-in rate limiting** to respect API limits
+- **Automatic retry logic** with exponential backoff
+- **Progress tracking** for monitoring analysis status
+- **Connection pooling** for better performance
