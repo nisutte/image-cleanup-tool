@@ -6,7 +6,19 @@
 
 ### Prerequisites
 
-Install required packages:
+This project uses [uv](https://github.com/astral-sh/uv) for dependency management. Install uv first:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+Then install dependencies:
+
+```bash
+uv sync
+```
+
+Alternatively, if you prefer pip:
 
 ```bash
 pip install pillow pillow-heif rich textual
@@ -14,6 +26,16 @@ pip install pillow pillow-heif rich textual
 
 ### Usage
 
+With uv (recommended):
+```bash
+# Single image:
+uv run python resize_and_encode.py path/to/image.jpg --output-dir b64_out --sizes 512 256
+
+# Entire directory (recursive batch):
+uv run python resize_and_encode.py path/to/images_dir --output-dir b64_out --sizes 512 256
+```
+
+With pip:
 ```bash
 # Single image:
 python3 resize_and_encode.py path/to/image.jpg --output-dir b64_out --sizes 512 256
@@ -34,7 +56,7 @@ Scan a directory to count images by extension and display a capture-date histogr
 The CLI will also report how many images are cached, then prompt to analyze any uncached images one by one:
 
 ```bash
-python3 main.py path/to/images_dir
+uv run python main.py path/to/images_dir
 ```
 
 ### Interactive Textual UI
@@ -42,7 +64,7 @@ python3 main.py path/to/images_dir
 Launch the interactive TUI (requires `textual`) to explore scan progress, counts, automatic cache checking, and image analysis in real time:
 
 ```bash
-python3 main.py --ui path/to/images_dir
+uv run python main.py --ui path/to/images_dir
 ```
 
 - The top pane shows scan progress and tables of extensions, devices, and capture-date histogram.
@@ -62,7 +84,7 @@ The script requires the `OPENAI_API_KEY` environment variable to be set.
 ### CLI Usage
 ```bash
 export OPENAI_API_KEY=your_api_key
-python3 openai_api.py path/to/image.jpg [size] [--log-level LEVEL]
+uv run python openai_api.py path/to/image.jpg [size] [--log-level LEVEL]
 ```
 - `path/to/image.jpg`: Path to the image file to analyze.
 - `size`: Optional integer for the square crop/resize dimension (default: 512).
