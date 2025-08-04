@@ -197,3 +197,29 @@ The async implementation provides:
 - **Automatic retry logic** with exponential backoff
 - **Progress tracking** for monitoring analysis status
 - **Connection pooling** for better performance
+
+### Cache Management
+
+The image analysis cache includes versioning and cleanup features:
+
+```python
+from image_cleanup_tool.core import ImageCache
+
+# Create cache with specific model
+cache = ImageCache(model="gpt-4.1-nano")
+
+# Get cache statistics
+stats = cache.get_stats()
+print(f"Cache has {stats['total_entries']} entries")
+
+# Clean up old entries (older than 30 days, max 10000 entries)
+removed = cache.cleanup(max_age_days=30, max_entries=10000)
+print(f"Removed {removed} old entries")
+```
+
+**Features:**
+- **Version control**: Cache entries are invalidated when analysis logic changes
+- **Model tracking**: Different AI models have separate cache entries
+- **Automatic cleanup**: Remove old entries by age or count
+- **Statistics**: Monitor cache size and usage
+- **Backward compatibility**: Handles legacy cache formats

@@ -17,8 +17,9 @@ Example:
 import json
 import hashlib
 from pathlib import Path
-from datetime import datetime
-from typing import Dict, Optional, Tuple
+from datetime import datetime, timedelta
+from typing import Dict, Optional, Tuple, Any
+import time
 
 from PIL import Image
 from PIL.ExifTags import TAGS, GPSTAGS
@@ -34,18 +35,71 @@ logger = get_logger(__name__)
 # Default cache file in working directory
 DEFAULT_CACHE_FILE = Path('.image_analysis_cache.json')
 
+# Current cache version - increment this when analysis logic changes
+CACHE_VERSION = "1.0"
 
-def load_cache(cache_file: Path = DEFAULT_CACHE_FILE) -> Dict[str, str]:
+# Cache entry structure
+class CacheEntry:
+    """Structure for cache entries with metadata."""
+    def __init__(self, path: str, result: str, version: str = CACHE_VERSION, 
+                 timestamp: float = None, model: str = None):
+        self.path = path
+        self.result = result
+        self.version = version
+        self.timestamp = timestamp or time.time()
+        self.model = model or "gpt-4.1-nano"  # Default model
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "path": self.path,
+            "result": self.result,
+            "version": self.version,
+            "timestamp": self.timestamp,
+            "model": self.model
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'CacheEntry':
+        return cls(
+            path=data.get("path", ""),
+            result=data.get("result", ""),
+            version=data.get("version", "0.0"),
+            timestamp=data.get("timestamp", time.time()),
+            model=data.get("model", "gpt-4.1-nano")
+        )
+
+
+def load_cache(cache_file: Path = DEFAULT_CACHE_FILE) -> Dict[str, Any]:
     """Load the cache from disk (JSON), or return empty dict on failure."""
     if cache_file.is_file():
         try:
-            return json.loads(cache_file.read_text(encoding='utf-8'))
-        except Exception:
-            pass
-    return {}
+            data = json.loads(cache_file.read_text(encoding='utf-8'))
+            # Handle both new format (with metadata) and legacy format
+            if isinstance(data, dict) and "version" in data:
+                # New format with metadata
+                return data
+            else:
+                # Legacy format - convert to new format
+                logger.info("Converting legacy cache format to new format")
+                converted = {"version": CACHE_VERSION, "entries": {}}
+                for key, value in data.items():
+                    if isinstance(value, dict) and "result" in value:
+                        # Already in new format
+                        converted["entries"][key] = value
+                    else:
+                        # Legacy format - wrap in new structure
+                        converted["entries"][key] = CacheEntry(
+                            path="",  # Legacy entries don't have path
+                            result=value,
+                            version="0.0"  # Legacy version
+                        ).to_dict()
+                return converted
+        except Exception as e:
+            logger.warning(f"Failed to load cache: {e}")
+    return {"version": CACHE_VERSION, "entries": {}}
 
 
-def save_cache(cache: Dict[str, str], cache_file: Path = DEFAULT_CACHE_FILE) -> None:
+def save_cache(cache: Dict[str, Any], cache_file: Path = DEFAULT_CACHE_FILE) -> None:
     """Persist the cache dict to disk as JSON."""
     cache_file.write_text(json.dumps(cache, ensure_ascii=False, indent=2), encoding='utf-8')
 
@@ -135,25 +189,160 @@ def compute_image_hash(path: Path) -> str:
 
 
 class ImageCache:
-    """Simple persistent cache for image analysis results by image fingerprint."""
+    """Persistent cache for image analysis results by image fingerprint with versioning and cleanup."""
 
-    def __init__(self, cache_file: Path = DEFAULT_CACHE_FILE):
+    def __init__(self, cache_file: Path = DEFAULT_CACHE_FILE, model: str = "gpt-4.1-nano"):
         self.cache_file = cache_file
+        self.model = model
         self._cache = load_cache(cache_file)
+        
+        # Ensure cache has proper structure
+        if "entries" not in self._cache:
+            self._cache = {"version": CACHE_VERSION, "entries": {}}
+        
+        # Check if cache version is outdated
+        if self._cache.get("version") != CACHE_VERSION:
+            logger.info(f"Cache version mismatch. Expected {CACHE_VERSION}, got {self._cache.get('version', 'unknown')}")
+            self._invalidate_outdated_entries()
 
     def get(self, path: Path) -> Optional[str]:
         """Return cached analysis result for image, or None if not present.
-        Cache entries also record the original file path."""
+        Only returns results from current version and model."""
         key = compute_image_hash(path)
-        entry = self._cache.get(key)
-        # entry may be a wrapped dict with path and result, or a legacy raw result
-        if isinstance(entry, dict) and "result" in entry:
-            return entry.get("result")
-        return entry
+        entry_data = self._cache.get("entries", {}).get(key)
+        
+        if entry_data is None:
+            return None
+        
+        # Handle both new CacheEntry format and legacy dict format
+        if isinstance(entry_data, dict):
+            entry = CacheEntry.from_dict(entry_data)
+        else:
+            # Legacy format
+            return entry_data
+        
+        # Check if entry is valid (current version and model)
+        if entry.version != CACHE_VERSION or entry.model != self.model:
+            logger.debug(f"Cache entry outdated for {path.name}: version={entry.version}, model={entry.model}")
+            return None
+        
+        return entry.result
 
     def set(self, path: Path, result: str) -> None:
         """Store the file path and analysis result for image, and persist cache to disk."""
         key = compute_image_hash(path)
-        # store both file path and analysis result under the hash key
-        self._cache[key] = {"path": str(path), "result": result}
+        entry = CacheEntry(
+            path=str(path),
+            result=result,
+            version=CACHE_VERSION,
+            model=self.model
+        )
+        
+        if "entries" not in self._cache:
+            self._cache["entries"] = {}
+        
+        self._cache["entries"][key] = entry.to_dict()
         save_cache(self._cache, self.cache_file)
+
+    def _invalidate_outdated_entries(self) -> None:
+        """Remove entries that don't match current version or model."""
+        if "entries" not in self._cache:
+            return
+        
+        original_count = len(self._cache["entries"])
+        valid_entries = {}
+        
+        for key, entry_data in self._cache["entries"].items():
+            if isinstance(entry_data, dict):
+                entry = CacheEntry.from_dict(entry_data)
+                if entry.version == CACHE_VERSION and entry.model == self.model:
+                    valid_entries[key] = entry_data
+            else:
+                # Legacy entry - remove it
+                continue
+        
+        self._cache["entries"] = valid_entries
+        self._cache["version"] = CACHE_VERSION
+        
+        removed_count = original_count - len(valid_entries)
+        if removed_count > 0:
+            logger.info(f"Invalidated {removed_count} outdated cache entries")
+            save_cache(self._cache, self.cache_file)
+
+    def cleanup(self, max_age_days: int = 30, max_entries: int = 10000) -> int:
+        """
+        Clean up old cache entries.
+        
+        Args:
+            max_age_days: Remove entries older than this many days
+            max_entries: Maximum number of entries to keep (removes oldest first)
+            
+        Returns:
+            Number of entries removed
+        """
+        if "entries" not in self._cache:
+            return 0
+        
+        entries = self._cache["entries"]
+        original_count = len(entries)
+        
+        # Remove entries older than max_age_days
+        cutoff_time = time.time() - (max_age_days * 24 * 60 * 60)
+        valid_entries = {}
+        
+        for key, entry_data in entries.items():
+            if isinstance(entry_data, dict):
+                entry = CacheEntry.from_dict(entry_data)
+                if entry.timestamp >= cutoff_time:
+                    valid_entries[key] = entry_data
+            else:
+                # Legacy entry - remove it
+                continue
+        
+        # If still too many entries, remove oldest ones
+        if len(valid_entries) > max_entries:
+            # Sort by timestamp and keep only the newest max_entries
+            sorted_entries = sorted(
+                valid_entries.items(),
+                key=lambda x: CacheEntry.from_dict(x[1]).timestamp,
+                reverse=True
+            )
+            valid_entries = dict(sorted_entries[:max_entries])
+        
+        self._cache["entries"] = valid_entries
+        removed_count = original_count - len(valid_entries)
+        
+        if removed_count > 0:
+            logger.info(f"Cleaned up {removed_count} cache entries")
+            save_cache(self._cache, self.cache_file)
+        
+        return removed_count
+
+    def get_stats(self) -> Dict[str, Any]:
+        """Get cache statistics."""
+        if "entries" not in self._cache:
+            return {"total_entries": 0, "size_bytes": 0, "oldest_entry": None, "newest_entry": None}
+        
+        entries = self._cache["entries"]
+        if not entries:
+            return {"total_entries": 0, "size_bytes": 0, "oldest_entry": None, "newest_entry": None}
+        
+        timestamps = []
+        for entry_data in entries.values():
+            if isinstance(entry_data, dict):
+                entry = CacheEntry.from_dict(entry_data)
+                timestamps.append(entry.timestamp)
+        
+        if timestamps:
+            oldest = min(timestamps)
+            newest = max(timestamps)
+        else:
+            oldest = newest = None
+        
+        return {
+            "total_entries": len(entries),
+            "size_bytes": len(json.dumps(self._cache)),
+            "oldest_entry": datetime.fromtimestamp(oldest).isoformat() if oldest else None,
+            "newest_entry": datetime.fromtimestamp(newest).isoformat() if newest else None,
+            "cache_version": self._cache.get("version", "unknown")
+        }
