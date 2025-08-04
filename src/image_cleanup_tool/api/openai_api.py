@@ -6,8 +6,8 @@ import logging
 
 from openai import OpenAI
 
-from log_utils import configure_logging, get_logger
-from image_encoder import crop_and_resize_to_b64
+from ..utils.log_utils import configure_logging, get_logger
+from ..core.image_encoder import crop_and_resize_to_b64
 
 
 logger = get_logger(__name__)

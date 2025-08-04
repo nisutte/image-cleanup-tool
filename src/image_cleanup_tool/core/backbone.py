@@ -19,9 +19,9 @@ try:
 except ImportError:
     pass
 
-from image_cache import ImageCache
-from workers import WorkerPool
-from utils import (
+from .image_cache import ImageCache
+from .workers import WorkerPool
+from ..utils.utils import (
     iter_files,
     IMAGE_EXTS,
     get_capture_datetime,

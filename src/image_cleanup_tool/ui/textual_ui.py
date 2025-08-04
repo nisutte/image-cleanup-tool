@@ -16,7 +16,7 @@ from textual.widgets import Header, Footer, DataTable, ProgressBar, Static, Mark
 from textual.containers import Horizontal, Vertical, Grid
 from textual import events
 
-from backbone import ImageScanEngine
+from ..core.backbone import ImageScanEngine
 
 
 class ImageScannerApp(App):

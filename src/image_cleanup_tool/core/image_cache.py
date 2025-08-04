@@ -27,7 +27,7 @@ try:
     register_heif_opener()
 except ImportError:
     pass
-from log_utils import get_logger
+from ..utils.log_utils import get_logger
 
 logger = get_logger(__name__)
 

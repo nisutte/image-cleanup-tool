@@ -10,7 +10,7 @@ import sys
 import argparse
 from pathlib import Path
 
-from backbone import ImageScanEngine
+from image_cleanup_tool.core.backbone import ImageScanEngine
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -55,7 +55,7 @@ def cli_run(root: Path):
     print(f"\nCached images: {cached}/{total}")
     if uncached:
         print(f"{uncached} uncached images remain; press Enter to analyze one by one.")
-        from openai_api import load_and_encode_image, analyze_image
+        from image_cleanup_tool.api.openai_api import load_and_encode_image, analyze_image
 
         for path in engine.uncached_images:
             input(f"Press Enter to analyze {path.name} ({uncached - engine.uncached_images.index(path)} remaining)...")
@@ -73,7 +73,7 @@ def main():
         sys.exit(1)
     if args.ui:
         try:
-            from ui_textual import ImageScannerApp
+            from image_cleanup_tool.ui.textual_ui import ImageScannerApp
         except ImportError:
             print("Error: Textual UI dependencies are not installed.", file=sys.stderr)
             sys.exit(1)

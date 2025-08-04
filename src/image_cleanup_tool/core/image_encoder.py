@@ -18,7 +18,7 @@ import io
 import os
 import sys
 
-from log_utils import configure_logging, get_logger
+from ..utils.log_utils import configure_logging, get_logger
 logger = get_logger(__name__)
 
 try:

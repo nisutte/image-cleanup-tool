@@ -1,4 +1,22 @@
-# Simple tool to clean up my image mess
+# Image Cleanup Tool
+
+A tool for scanning and analyzing personal photos using AI.
+
+## Project Structure
+
+This project follows Python packaging best practices:
+
+```
+image-cleanup-tool-1/
+├── src/image_cleanup_tool/     # Main package
+│   ├── core/                   # Core functionality
+│   ├── api/                    # External API integrations
+│   ├── ui/                     # User interface components
+│   └── utils/                  # Shared utilities
+├── scripts/                    # CLI entry points
+├── tests/                      # Test suite
+└── pyproject.toml             # Project configuration
+```
 
 ## Image Preprocessing Script
 
@@ -29,10 +47,10 @@ pip install pillow pillow-heif rich textual
 With uv (recommended):
 ```bash
 # Single image:
-uv run python resize_and_encode.py path/to/image.jpg --output-dir b64_out --sizes 512 256
+uv run python src/image_cleanup_tool/core/image_encoder.py path/to/image.jpg --output-dir b64_out --sizes 512 256
 
 # Entire directory (recursive batch):
-uv run python resize_and_encode.py path/to/images_dir --output-dir b64_out --sizes 512 256
+uv run python src/image_cleanup_tool/core/image_encoder.py path/to/images_dir --output-dir b64_out --sizes 512 256
 ```
 
 With pip:
@@ -56,7 +74,7 @@ Scan a directory to count images by extension and display a capture-date histogr
 The CLI will also report how many images are cached, then prompt to analyze any uncached images one by one:
 
 ```bash
-uv run python main.py path/to/images_dir
+uv run python scripts/main.py path/to/images_dir
 ```
 
 ### Interactive Textual UI
@@ -64,7 +82,7 @@ uv run python main.py path/to/images_dir
 Launch the interactive TUI (requires `textual`) to explore scan progress, counts, automatic cache checking, and image analysis in real time:
 
 ```bash
-uv run python main.py --ui path/to/images_dir
+uv run python scripts/main.py --ui path/to/images_dir
 ```
 
 - The top pane shows scan progress and tables of extensions, devices, and capture-date histogram.
@@ -84,7 +102,7 @@ The script requires the `OPENAI_API_KEY` environment variable to be set.
 ### CLI Usage
 ```bash
 export OPENAI_API_KEY=your_api_key
-uv run python openai_api.py path/to/image.jpg [size] [--log-level LEVEL]
+uv run python src/image_cleanup_tool/api/openai_api.py path/to/image.jpg [size] [--log-level LEVEL]
 ```
 - `path/to/image.jpg`: Path to the image file to analyze.
 - `size`: Optional integer for the square crop/resize dimension (default: 512).
@@ -113,12 +131,12 @@ print(json.dumps(result, indent=2))
 If you’d rather call the logic programmatically, import these helpers:
 
 ```python
-from resize_and_encode import (
-    configure_logging,
+from image_cleanup_tool.core.image_encoder import (
     crop_and_resize_to_b64,
     batch_images_to_b64,
-    write_b64_files,
 )
+from image_cleanup_tool.utils.log_utils import configure_logging
+```
 
 # initialize logging (optional)
 configure_logging()

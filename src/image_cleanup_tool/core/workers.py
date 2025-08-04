@@ -5,7 +5,7 @@ from typing import Tuple
 from pathlib import Path
 from typing import List, Dict, Union
 
-from openai_api import load_and_encode_image, analyze_image
+from ..api.openai_api import load_and_encode_image, analyze_image
 
 
 class RateLimiter:
