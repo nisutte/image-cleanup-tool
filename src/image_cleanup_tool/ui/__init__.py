@@ -2,6 +2,6 @@
 User interface components.
 """
 
-from .textual_ui import ImageScannerApp
+from .rich_ui import RichImageScannerUI
 
-__all__ = ["ImageScannerApp"] 
+__all__ = ["RichImageScannerUI"] 

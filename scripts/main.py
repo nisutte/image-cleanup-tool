@@ -22,7 +22,7 @@ def parse_args():
     parser.add_argument(
         "--ui",
         action="store_true",
-        help="Launch the interactive Textual UI instead of non-interactive CLI output",
+        help="Launch the interactive Rich UI instead of non-interactive CLI output",
     )
     return parser.parse_args()
 
@@ -73,11 +73,11 @@ def main():
         sys.exit(1)
     if args.ui:
         try:
-            from image_cleanup_tool.ui.textual_ui import ImageScannerApp
+            from image_cleanup_tool.ui import RichImageScannerUI
         except ImportError:
-            print("Error: Textual UI dependencies are not installed.", file=sys.stderr)
+            print("Error: Rich UI dependencies are not installed.", file=sys.stderr)
             sys.exit(1)
-        ImageScannerApp.run(root)
+        RichImageScannerUI.run(root)
     else:
         cli_run(root)
 
