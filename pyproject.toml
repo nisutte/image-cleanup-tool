@@ -5,12 +5,12 @@ description = "A tool for scanning and analyzing personal photos using AI"
 readme = "README.md"
 requires-python = ">=3.8"
 dependencies = [
-    "textual>=0.40.0",
     "openai>=1.0.0",
     "pillow>=10.0.0",
     "pillow-heif>=0.15.0",
     "aiohttp>=3.8.0",
     "tenacity>=8.0.0",
+    "rich>=14.1.0",
 ]
 
 [project.optional-dependencies]

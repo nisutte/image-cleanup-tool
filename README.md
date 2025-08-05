@@ -24,7 +24,7 @@ image-cleanup-tool-1/
 
 ### Prerequisites
 
-This project uses [uv](https://github.com/astral-sh/uv) for dependency management. Install uv first:
+This project uses [uv](https://github.com/astral.sh/uv) for dependency management. Install uv first:
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -39,7 +39,7 @@ uv sync
 Alternatively, if you prefer pip:
 
 ```bash
-pip install pillow pillow-heif rich textual
+pip install pillow pillow-heif rich openai aiohttp tenacity
 ```
 
 ### Usage
@@ -77,18 +77,19 @@ The CLI will also report how many images are cached, then prompt to analyze any 
 uv run python scripts/main.py path/to/images_dir
 ```
 
-### Interactive Textual UI
+### Interactive Rich UI
 
-Launch the interactive TUI (requires `textual`) to explore scan progress, counts, automatic cache checking, and image analysis in real time:
+Launch the interactive Rich UI to explore scan progress, cache status, and image analysis in real time:
 
 ```bash
 uv run python scripts/main.py --ui path/to/images_dir
 ```
 
-- The top pane shows scan progress and tables of extensions, devices, and capture-date histogram.
-- Once scanning completes, cache checking starts automatically with its own progress bar.
-- Use the "Analyze" switch to start/pause analysis of uncached images; results appear in the live log below.
-- Press "q" at any time to quit the interface.
+- **Scan Progress Bar**: Shows file scanning progress with time elapsed
+- **Cache Status Bar**: Displays cached vs uncached images with color coding (green=cached, yellow=uncached)
+- **Analysis Progress Bar**: Full-width progress bar for analyzing uncached images with time remaining
+- **Results Display**: 3-line text area showing latest analysis results with color-coded classifications
+- **Automatic Analysis**: Analysis starts automatically after cache check completes
 
 ## Image Analysis with OpenAI GPT
 
