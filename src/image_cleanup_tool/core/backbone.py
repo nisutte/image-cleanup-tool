@@ -11,6 +11,7 @@ import time
 from pathlib import Path
 from collections import Counter
 from typing import Callable, Dict, Any, Optional
+import asyncio
 
 try:
     from pillow_heif import register_heif_opener
@@ -57,6 +58,7 @@ class ImageScanEngine:
         # on_analysis_progress(path, analyzed_count, total_count, result)
         self.on_analysis_progress: Optional[Callable[[Path, int, int, Any], None]] = None
         self.on_analysis_complete: Optional[Callable[[], None]] = None
+        self._processed_paths: set[Path] = set()
 
     def calculate_total(self) -> None:
         """Count total files under the root directory."""
@@ -118,7 +120,8 @@ class ImageScanEngine:
             else:
                 self.uncached_images.append(path)
             scanned += 1
-            if self.on_cache_progress:
+            # Update progress more frequently for better UI responsiveness
+            if self.on_cache_progress and (scanned % 1 == 0 or scanned == len(self.image_paths)):
                 self.on_cache_progress(scanned, known)
         if self.on_cache_complete:
             self.on_cache_complete(known, len(self.image_paths))
@@ -127,7 +130,7 @@ class ImageScanEngine:
 
     async def run_analysis_async(
         self, max_concurrent: int = 10, requests_per_minute: int = 60, size: int = 512
-    ) -> None:
+    ) -> None:  
         """
         Analyze uncached images concurrently using AsyncWorkerPool.
         Calls on_analysis_progress for each result and on_analysis_complete at end.
@@ -144,23 +147,47 @@ class ImageScanEngine:
             size=size,
         )
         
-        # Run the analysis
-        results = await pool.analyze_all()
-        
-        # Process results and call callbacks
+        # Instead of waiting for all results, process them as they complete
         total = len(self.uncached_images)
         analyzed = 0
         
-        for path, analysis_result in results.items():
-            analyzed += 1
-            
-            # Cache successful results
-            if not isinstance(analysis_result.result, Exception):
-                self.cache.set(path, analysis_result.result)
-            
-            # Call progress callback
-            if self.on_analysis_progress:
-                self.on_analysis_progress(path, analyzed, total, analysis_result.result)
+        # Create tasks for all images
+        tasks = [pool._analyze_single_image(path) for path in self.uncached_images]
+        
+        # Process results as they complete
+        for completed_task in asyncio.as_completed(tasks):
+            try:
+                await completed_task
+                analyzed += 1
+                
+                # Get the latest result from the pool
+                latest_path = None
+                latest_result = None
+                for path, result in pool.results.items():
+                    if path not in self._processed_paths:
+                        latest_path = path
+                        latest_result = result.result
+                        break
+                
+                if latest_path and latest_result:
+                    # Cache successful results
+                    if not isinstance(latest_result, Exception):
+                        self.cache.set(latest_path, latest_result)
+                        
+                        # Update cache progress since we just cached a new result
+                        if self.on_cache_progress:
+                            cached_count = sum(1 for path in self.image_paths if self.cache.get(path) is not None)
+                            self.on_cache_progress(cached_count, self.total_files)
+                    
+                    # Call progress callback
+                    if self.on_analysis_progress:
+                        self.on_analysis_progress(latest_path, analyzed, total, latest_result)
+                    
+                    # Track processed paths
+                    self._processed_paths.add(latest_path)
+                
+            except Exception as e:
+                analyzed += 1
         
         # Call completion callback
         if self.on_analysis_complete:
