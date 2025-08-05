@@ -122,7 +122,6 @@ class RichImageScannerUI:
             title="[bold]Analysis Results",
             border_style="green",
             width=120,
-            height=10
         )
 
     def _update_results_display(self, new_result: str):
