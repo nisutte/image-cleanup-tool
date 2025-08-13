@@ -14,35 +14,63 @@ logger = get_logger(__name__)
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # === Configuration ===
-# 4.1 nano is crazy cheap for images, 0,000063 $ for a 512x512, so 63 cents for 10'000 images
-# MODEL = "gpt-4o-mini"
-MODEL = "gpt-4.1-nano"
+# GPT-5-nano is the latest and most cost-effective model for image analysis
+MODEL = "gpt-5-nano"
 
 # === Prompt Template ===
 
 PROMPT_TEMPLATE = """
-You help sort personal photos. For each image:
+You help sort personal photos. For each image, analyze it and return a structured JSON response.
 
-1. Describe it in 3 sentences.
-2. Return a valid JSON object with the following structure, deciding if the image is worth keeping or not:
+Return a valid JSON object with the following structure:
 
 {
-  "description": "...",
+  "description": "A clear 2-3 sentence description of what's in the image",
   "category_scores": {
-    "blurry": %, "meme": %, "screenshot": %, "document": %, 
-    "personal": %, "non_personal": %, "contains_faces": %
+    "blurry": 0-100,
+    "meme": 0-100, 
+    "screenshot": 0-100,
+    "document": 0-100,
+    "personal": 0-100,
+    "non_personal": 0-100,
+    "contains_faces": 0-100
   },
   "final_classification": {
-    "keep": %, "discard": %, "unsure": %
+    "keep": 0-100,
+    "discard": 0-100,
+    "unsure": 0-100
   },
+  "reasoning": "Brief explanation of the classification decision (max 100 words)"
 }
 
 Scoring rules:
-- In general, keep if it is worth keeping, discard otherwise and unsure if unsure. Classification should sum up to 100.
-- Also: High "keep" if personal or contains_faces.
-- High "discard" if blurry, meme, non_personal, screenshot, or document.
+- All scores should be integers between 0-100
+- final_classification should sum to 100
+- High "keep" if personal, contains_faces, or meaningful content
+- High "discard" if blurry, meme, non_personal, screenshot, or document
+- Use "unsure" when the image quality or content is ambiguous
 
-IMPORTANT: Return ONLY a JSON object. No extra text or markdown!
+Example response:
+{
+  "description": "A clear photo of a family gathering at a park with 5 people smiling and enjoying a picnic.",
+  "category_scores": {
+    "blurry": 5,
+    "meme": 0,
+    "screenshot": 0,
+    "document": 0,
+    "personal": 95,
+    "non_personal": 5,
+    "contains_faces": 90
+  },
+  "final_classification": {
+    "keep": 95,
+    "discard": 5,
+    "unsure": 0
+  },
+  "reasoning": "High personal value with clear faces and meaningful family moment"
+}
+
+IMPORTANT: Return ONLY a valid JSON object. No extra text or markdown!
 """.strip()
 
 
@@ -71,14 +99,14 @@ def analyze_image(image_b64: str) -> dict:
         response = client.chat.completions.create(
             model=MODEL,
             messages=messages,
-            max_tokens=300,
-            temperature=0.0,
+            max_completion_tokens=2000,
         )
     except Exception as err:
         logger.error("API request failed: %s", err)
         raise RuntimeError(f"OpenAI API error: {err}")
+    
     content = response.choices[0].message.content
-    content = content.replace("%", "")      # responses are funny sometimes
+
     try:
         return json.loads(content)
     except json.JSONDecodeError:
