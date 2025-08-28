@@ -6,7 +6,7 @@ using various AI APIs through a unified interface.
 """
 
 import json
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
 from abc import ABC, abstractmethod
 
 from ..utils.log_utils import get_logger
@@ -38,33 +38,36 @@ class APIClient(ABC):
         pass
 
     @abstractmethod
-    def _call_api(self, image_b64: str) -> str:
-        """Make the actual API call and return the response text.
+    def _call_api(self, image_b64: str) -> Tuple[str, Dict[str, int]]:
+        """Make the actual API call and return the response text and token usage.
 
         Args:
             image_b64: Base64-encoded image data
 
         Returns:
-            Raw response text from the API
+            Tuple of (response_text, token_usage_dict)
+            token_usage_dict should contain keys like 'input_tokens', 'output_tokens', 'total_tokens'
         """
         pass
 
-    def analyze_image(self, image_b64: str) -> Dict[str, Any]:
+    def analyze_image(self, image_b64: str) -> Tuple[Dict[str, Any], Dict[str, int]]:
         """Analyze an image using this API client.
 
         Args:
             image_b64: Base64-encoded image data
 
         Returns:
-            Parsed JSON response from the API
+            Tuple of (parsed_json_response, token_usage_dict)
+            token_usage_dict contains keys like 'input_tokens', 'output_tokens', 'total_tokens'
 
         Raises:
             RuntimeError: If API call fails
             ValueError: If response cannot be parsed as JSON
         """
         try:
-            response_text = self._call_api(image_b64)
-            return json.loads(response_text)
+            response_text, token_usage = self._call_api(image_b64)
+            parsed_response = json.loads(response_text)
+            return parsed_response, token_usage
         except json.JSONDecodeError:
             logger.error("Failed to parse JSON response: %s", response_text)
             raise ValueError(f"Invalid JSON response: {response_text}")
@@ -88,7 +91,7 @@ class ImageProcessor:
         return encoded.get(str(size), "")
 
     @staticmethod
-    def process_image_with_api(image_path: str, api_client: APIClient, size: int = 512) -> Dict[str, Any]:
+    def process_image_with_api(image_path: str, api_client: APIClient, size: int = 512) -> Tuple[Dict[str, Any], Dict[str, int]]:
         """Complete pipeline: load image, encode it, and analyze with API.
 
         Args:
@@ -97,7 +100,7 @@ class ImageProcessor:
             size: Target size for the square crop (default: 512)
 
         Returns:
-            Analysis result from the API
+            Tuple of (analysis_result, token_usage_dict)
         """
         logger.debug("Processing image: %s", image_path)
         image_b64 = ImageProcessor.load_and_encode_image(image_path, size)

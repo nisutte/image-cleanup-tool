@@ -55,14 +55,19 @@ def cli_run(root: Path):
     print(f"\nCached images: {cached}/{total}")
     if uncached:
         print(f"{uncached} uncached images remain; press Enter to analyze one by one.")
-        from image_cleanup_tool.api.openai_api import load_and_encode_image, analyze_image
+        from image_cleanup_tool.api import ImageProcessor, get_client
+
+        # Create API client for analysis
+        api_client = get_client("openai")
 
         for path in engine.uncached_images:
             input(f"Press Enter to analyze {path.name} ({uncached - engine.uncached_images.index(path)} remaining)...")
             print(f"Analyzing {path}...")
-            b64 = load_and_encode_image(str(path), 512)
-            result = analyze_image(b64)
+            b64 = ImageProcessor.load_and_encode_image(str(path), 512)
+            result, token_usage = api_client.analyze_image(b64)
             print(f"Result: {result.get('final_classification')}")
+            if token_usage:
+                print(f"Tokens used: {token_usage.get('total_tokens', 'N/A')}")
             engine.cache.set(path, result)
 
 def main():

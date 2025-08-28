@@ -7,7 +7,7 @@ all inheriting from the base APIClient class for unified interface.
 
 import os
 import base64
-from typing import Optional
+from typing import Optional, Tuple, Dict
 
 import anthropic
 from openai import OpenAI
@@ -45,7 +45,7 @@ class ClaudeClient(APIClient):
         """Return Claude model name."""
         return self.model
 
-    def _call_api(self, image_b64: str) -> str:
+    def _call_api(self, image_b64: str) -> Tuple[str, Dict[str, int]]:
         """Make API call to Claude."""
         try:
             response = self.client.messages.create(
@@ -72,7 +72,16 @@ class ClaudeClient(APIClient):
                     }
                 ]
             )
-            return response.content[0].text
+
+            # Extract token usage
+            usage = response.usage
+            token_usage = {
+                'input_tokens': usage.input_tokens,
+                'output_tokens': usage.output_tokens,
+                'total_tokens': usage.input_tokens + usage.output_tokens
+            }
+
+            return response.content[0].text, token_usage
         except Exception as err:
             logger.error("Claude API request failed: %s", err)
             raise RuntimeError(f"Claude API error: {err}")
@@ -81,12 +90,12 @@ class ClaudeClient(APIClient):
 class OpenAIClient(APIClient):
     """Client for OpenAI's GPT API."""
 
-    def __init__(self, api_key: Optional[str] = None, model: str = "gpt-4o-mini"):
+    def __init__(self, api_key: Optional[str] = None, model: str = "gpt-5-nano"):
         """Initialize OpenAI client.
 
         Args:
             api_key: OpenAI API key. If None, uses OPENAI_API_KEY env var.
-            model: Model name to use (default: gpt-4o-mini)
+            model: Model name to use (default: gpt-5-nano)
         """
         self.model = model
         super().__init__(api_key)
@@ -103,7 +112,7 @@ class OpenAIClient(APIClient):
         """Return OpenAI model name."""
         return self.model
 
-    def _call_api(self, image_b64: str) -> str:
+    def _call_api(self, image_b64: str) -> Tuple[str, Dict[str, int]]:
         """Make API call to OpenAI."""
         try:
             response = self.client.chat.completions.create(
@@ -126,9 +135,18 @@ class OpenAIClient(APIClient):
                         ],
                     }
                 ],
-                max_tokens=2000,
+                max_completion_tokens=2000,
             )
-            return response.choices[0].message.content
+
+            # Extract token usage
+            usage = response.usage
+            token_usage = {
+                'input_tokens': usage.prompt_tokens,
+                'output_tokens': usage.completion_tokens,
+                'total_tokens': usage.total_tokens
+            }
+
+            return response.choices[0].message.content, token_usage
         except Exception as err:
             logger.error("OpenAI API request failed: %s", err)
             raise RuntimeError(f"OpenAI API error: {err}")
@@ -149,9 +167,9 @@ class GeminiClient(APIClient):
 
     def _validate_api_key(self) -> None:
         """Validate Google API key."""
-        key = self.api_key or os.getenv("GOOGLE_API_KEY")
+        key = self.api_key or os.getenv("GEMINI_API_KEY")
         if not key:
-            raise ValueError("GOOGLE_API_KEY environment variable not set")
+            raise ValueError("GEMINI_API_KEY environment variable not set")
         self.api_key = key
         genai.configure(api_key=key)
 
@@ -159,7 +177,7 @@ class GeminiClient(APIClient):
         """Return Gemini model name."""
         return self.model
 
-    def _call_api(self, image_b64: str) -> str:
+    def _call_api(self, image_b64: str) -> Tuple[str, Dict[str, int]]:
         """Make API call to Gemini."""
         try:
             model = genai.GenerativeModel(self.model)
@@ -172,7 +190,32 @@ class GeminiClient(APIClient):
                 }
             ])
 
-            return response.text
+            # Clean up Gemini's markdown-formatted response
+            response_text = response.text.strip()
+
+            # Remove markdown code blocks if present
+            if response_text.startswith('```json'):
+                response_text = response_text[7:]  # Remove ```json
+            elif response_text.startswith('```'):
+                response_text = response_text[3:]  # Remove ```
+
+            if response_text.endswith('```'):
+                response_text = response_text[:-3]  # Remove ```
+
+            response_text = response_text.strip()
+
+            # Gemini doesn't provide token usage, so we'll estimate based on text length
+            # Rough estimation: ~4 characters per token for English text
+            input_tokens = len(PROMPT_TEMPLATE) // 4
+            output_tokens = len(response_text) // 4
+
+            token_usage = {
+                'input_tokens': input_tokens,
+                'output_tokens': output_tokens,
+                'total_tokens': input_tokens + output_tokens
+            }
+
+            return response_text, token_usage
         except Exception as err:
             logger.error("Gemini API request failed: %s", err)
             raise RuntimeError(f"Gemini API error: {err}")

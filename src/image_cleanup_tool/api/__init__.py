@@ -17,7 +17,8 @@ def load_and_encode_image(path: str, size: int = 512) -> str:
 def analyze_image_with_api(image_path: str, api_name: str, size: int = 512, **kwargs) -> dict:
     """Analyze image using specified API (legacy function - use client classes instead)."""
     client = get_client(api_name, **kwargs)
-    return ImageProcessor.process_image_with_api(image_path, client, size)
+    result, _ = ImageProcessor.process_image_with_api(image_path, client, size)
+    return result
 
 __all__ = [
     # Main classes
