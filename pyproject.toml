@@ -13,6 +13,7 @@ dependencies = [
     "tenacity>=8.0.0",
     "rich>=14.1.0",
     "google-generativeai>=0.8.5",
+    "flask>=3.0.0",
 ]
 
 [project.optional-dependencies]
