@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LLM Image Classification Comparison</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>LLM Image Classification Comparison</h1>
+            <div class="nav-controls">
+                <button id="prev-btn" class="nav-btn">← Previous</button>
+                <span id="image-counter">Loading...</span>
+                <button id="next-btn" class="nav-btn">Next →</button>
+            </div>
+        </header>
+
+        <div class="main-content">
+            <!-- Left column: Image display -->
+            <div class="image-panel">
+                <div class="image-container">
+                    <img id="current-image" src="" alt="Current image" style="display: none;">
+                    <div id="image-loading" class="loading">Loading image...</div>
+                    <div id="image-error" class="error" style="display: none;">Image not found</div>
+                </div>
+                <div class="image-info">
+                    <h3 id="image-path">Loading...</h3>
+                    <p id="image-hash">Hash: Loading...</p>
+                </div>
+            </div>
+
+            <!-- Right column: Model comparison -->
+            <div class="comparison-panel">
+                <!-- Top section: Quick overview of all model scores -->
+                <div class="scores-overview">
+                    <h2>Quick Classification Overview</h2>
+                    <div class="overview-grid">
+                        <!-- Gemini Overview -->
+                        <div class="model-overview" id="gemini-overview">
+                            <h3>🤖 Gemini</h3>
+                            <div class="overview-scores">
+                                <div class="score-bar-container">
+                                    <div class="score-label">Keep</div>
+                                    <div class="score-bar">
+                                        <div class="score-fill keep-fill" data-score="0" style="width: 0%"></div>
+                                        <div class="score-text">-</div>
+                                    </div>
+                                </div>
+                                <div class="score-bar-container">
+                                    <div class="score-label">Discard</div>
+                                    <div class="score-bar">
+                                        <div class="score-fill discard-fill" data-score="0" style="width: 0%"></div>
+                                        <div class="score-text">-</div>
+                                    </div>
+                                </div>
+                                <div class="score-bar-container">
+                                    <div class="score-label">Unsure</div>
+                                    <div class="score-bar">
+                                        <div class="score-fill unsure-fill" data-score="0" style="width: 0%"></div>
+                                        <div class="score-text">-</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Claude Overview -->
+                        <div class="model-overview" id="claude-overview">
+                            <h3>🧠 Claude</h3>
+                            <div class="overview-scores">
+                                <div class="score-bar-container">
+                                    <div class="score-label">Keep</div>
+                                    <div class="score-bar">
+                                        <div class="score-fill keep-fill" data-score="0" style="width: 0%"></div>
+                                        <div class="score-text">-</div>
+                                    </div>
+                                </div>
+                                <div class="score-bar-container">
+                                    <div class="score-label">Discard</div>
+                                    <div class="score-bar">
+                                        <div class="score-fill discard-fill" data-score="0" style="width: 0%"></div>
+                                        <div class="score-text">-</div>
+                                    </div>
+                                </div>
+                                <div class="score-bar-container">
+                                    <div class="score-label">Unsure</div>
+                                    <div class="score-bar">
+                                        <div class="score-fill unsure-fill" data-score="0" style="width: 0%"></div>
+                                        <div class="score-text">-</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- OpenAI Overview -->
+                        <div class="model-overview" id="openai-overview">
+                            <h3>🎯 OpenAI</h3>
+                            <div class="overview-scores">
+                                <div class="score-bar-container">
+                                    <div class="score-label">Keep</div>
+                                    <div class="score-bar">
+                                        <div class="score-fill keep-fill" data-score="0" style="width: 0%"></div>
+                                        <div class="score-text">-</div>
+                                    </div>
+                                </div>
+                                <div class="score-bar-container">
+                                    <div class="score-label">Discard</div>
+                                    <div class="score-bar">
+                                        <div class="score-fill discard-fill" data-score="0" style="width: 0%"></div>
+                                        <div class="score-text">-</div>
+                                    </div>
+                                </div>
+                                <div class="score-bar-container">
+                                    <div class="score-label">Unsure</div>
+                                    <div class="score-bar">
+                                        <div class="score-fill unsure-fill" data-score="0" style="width: 0%"></div>
+                                        <div class="score-text">-</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Bottom section: Detailed view with scrollable content -->
+                <div class="details-panel collapsed">
+                    <div class="details-header">
+                        <h2>Detailed Analysis</h2>
+                        <button id="toggle-details" class="toggle-btn">
+                            <span class="toggle-icon">▼</span> Show Details
+                        </button>
+                    </div>
+                    <div class="details-content" style="display: none;">
+
+                        <!-- Gemini Model Details -->
+                        <div class="model-section" id="gemini-section">
+                            <h3>🤖 Gemini Details</h3>
+                            <div class="model-content">
+                                <div class="category-scores">
+                                    <h4>Category Scores</h4>
+                                    <div class="category-grid" id="gemini-categories">
+                                        <!-- Categories will be populated by JS -->
+                                    </div>
+                                </div>
+                                <div class="description">
+                                    <h4>Description</h4>
+                                    <p id="gemini-description">-</p>
+                                </div>
+                                <div class="reasoning">
+                                    <h4>Reasoning</h4>
+                                    <p id="gemini-reasoning">-</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Claude Model Details -->
+                        <div class="model-section" id="claude-section">
+                            <h3>🧠 Claude Details</h3>
+                            <div class="model-content">
+                                <div class="category-scores">
+                                    <h4>Category Scores</h4>
+                                    <div class="category-grid" id="claude-categories">
+                                        <!-- Categories will be populated by JS -->
+                                    </div>
+                                </div>
+                                <div class="description">
+                                    <h4>Description</h4>
+                                    <p id="claude-description">-</p>
+                                </div>
+                                <div class="reasoning">
+                                    <h4>Reasoning</h4>
+                                    <p id="claude-reasoning">-</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- OpenAI Model Details -->
+                        <div class="model-section" id="openai-section">
+                            <h3>🎯 OpenAI Details</h3>
+                            <div class="model-content">
+                                <div class="category-scores">
+                                    <h4>Category Scores</h4>
+                                    <div class="category-grid" id="openai-categories">
+                                        <!-- Categories will be populated by JS -->
+                                    </div>
+                                </div>
+                                <div class="description">
+                                    <h4>Description</h4>
+                                    <p id="openai-description">-</p>
+                                </div>
+                                <div class="reasoning">
+                                    <h4>Reasoning</h4>
+                                    <p id="openai-reasoning">-</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
