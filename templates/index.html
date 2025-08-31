@@ -17,6 +17,46 @@
             </div>
         </header>
 
+        <!-- Filter Controls -->
+        <div class="filter-panel">
+            <h3>Filter Images</h3>
+            <div class="filter-controls">
+                <div class="filter-group">
+                    <label for="model-filter">Model:</label>
+                    <select id="model-filter">
+                        <option value="any">Any Model</option>
+                        <option value="gemini">Gemini</option>
+                        <option value="claude">Claude</option>
+                        <option value="openai">OpenAI</option>
+                    </select>
+                </div>
+
+                <div class="filter-group">
+                    <label for="classification-filter">Classification:</label>
+                    <select id="classification-filter">
+                        <option value="keep">Keep</option>
+                        <option value="discard">Discard</option>
+                        <option value="unsure">Unsure</option>
+                    </select>
+                </div>
+
+                <div class="filter-group">
+                    <label for="percentage-filter">Min Percentage:</label>
+                    <input type="number" id="percentage-filter" min="0" max="100" value="50" step="5">
+                </div>
+
+                <div class="filter-buttons">
+                    <button id="apply-filter" class="filter-btn apply">Apply Filter</button>
+                    <button id="clear-filter" class="filter-btn clear">Clear Filter</button>
+                </div>
+            </div>
+
+            <div class="filter-status" id="filter-status" style="display: none;">
+                <span id="filter-text"></span>
+                <span id="results-count"></span>
+            </div>
+        </div>
+
         <div class="main-content">
             <!-- Left column: Image display -->
             <div class="image-panel">

@@ -2,6 +2,8 @@
 let cacheData = null;
 let currentImageIndex = 0;
 let imageEntries = [];
+let filteredEntries = [];
+let currentFilter = null;
 
 // DOM elements
 const currentImage = document.getElementById('current-image');
@@ -13,11 +15,22 @@ const imageCounter = document.getElementById('image-counter');
 const prevBtn = document.getElementById('prev-btn');
 const nextBtn = document.getElementById('next-btn');
 
+// Filter elements
+const modelFilter = document.getElementById('model-filter');
+const classificationFilter = document.getElementById('classification-filter');
+const percentageFilter = document.getElementById('percentage-filter');
+const applyFilterBtn = document.getElementById('apply-filter');
+const clearFilterBtn = document.getElementById('clear-filter');
+const filterStatus = document.getElementById('filter-status');
+const filterText = document.getElementById('filter-text');
+const resultsCount = document.getElementById('results-count');
+
 // Initialize the application
 async function init() {
     try {
         await loadCacheData();
         setupEventListeners();
+        initializeFilters();
         showCurrentImage();
     } catch (error) {
         console.error('Failed to initialize app:', error);
@@ -40,6 +53,9 @@ async function loadCacheData() {
     }
 
     console.log(`Loaded ${imageEntries.length} images from cache`);
+
+    // Initialize filtered entries with all images
+    filteredEntries = [...imageEntries];
 }
 
 // Set up event listeners
@@ -68,6 +84,17 @@ function setupEventListeners() {
         }
     });
 
+    // Filter event listeners
+    applyFilterBtn.addEventListener('click', applyFilter);
+    clearFilterBtn.addEventListener('click', clearFilter);
+
+    // Allow Enter key to apply filter from percentage input
+    percentageFilter.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            applyFilter();
+        }
+    });
+
     // Keyboard navigation
     document.addEventListener('keydown', (e) => {
         if (e.key === 'ArrowLeft') {
@@ -78,11 +105,106 @@ function setupEventListeners() {
     });
 }
 
+// Initialize filters
+function initializeFilters() {
+    // Filters are already initialized with default values in HTML
+    updateFilterStatus();
+}
+
+// Apply current filter
+function applyFilter() {
+    const model = modelFilter.value;
+    const classification = classificationFilter.value;
+    const minPercentage = parseInt(percentageFilter.value) || 0;
+
+    currentFilter = {
+        model: model,
+        classification: classification,
+        minPercentage: minPercentage
+    };
+
+    // Filter the entries
+    filteredEntries = imageEntries.filter(([hash, entry]) => {
+        return matchesFilter(entry, currentFilter);
+    });
+
+    // Reset to first filtered image
+    currentImageIndex = 0;
+
+    // Update UI
+    updateFilterStatus();
+    showCurrentImage();
+
+    console.log(`Applied filter: ${filteredEntries.length} results`);
+}
+
+// Check if an entry matches the current filter
+function matchesFilter(entry, filter) {
+    const { model, classification, minPercentage } = filter;
+
+    if (model === 'any') {
+        // Check if any model meets the criteria
+        const models = ['gemini', 'claude', 'openai'];
+        return models.some(modelName => {
+            const modelData = entry.models[modelName];
+            if (!modelData || !modelData.result || !modelData.result.final_classification) {
+                return false;
+            }
+            return modelData.result.final_classification[classification] >= minPercentage;
+        });
+    } else {
+        // Check specific model
+        const modelData = entry.models[model];
+        if (!modelData || !modelData.result || !modelData.result.final_classification) {
+            return false;
+        }
+        return modelData.result.final_classification[classification] >= minPercentage;
+    }
+}
+
+// Clear filter
+function clearFilter() {
+    currentFilter = null;
+    filteredEntries = [...imageEntries];
+    currentImageIndex = 0;
+
+    updateFilterStatus();
+    showCurrentImage();
+
+    console.log('Filter cleared');
+}
+
+// Update filter status display
+function updateFilterStatus() {
+    if (currentFilter) {
+        const modelName = currentFilter.model === 'any' ? 'Any Model' :
+                         currentFilter.model.charAt(0).toUpperCase() + currentFilter.model.slice(1);
+        const className = currentFilter.classification.charAt(0).toUpperCase() + currentFilter.classification.slice(1);
+
+        filterText.textContent = `${modelName} - ${className} ≥ ${currentFilter.minPercentage}%`;
+        resultsCount.textContent = `${filteredEntries.length} of ${imageEntries.length} images`;
+
+        filterStatus.style.display = 'flex';
+    } else {
+        filterStatus.style.display = 'none';
+    }
+}
+
 // Show the current image and its analysis
 function showCurrentImage() {
-    if (imageEntries.length === 0) return;
+    if (filteredEntries.length === 0) {
+        // No filtered results
+        imagePath.textContent = 'No images match filter criteria';
+        imageHash.textContent = '';
+        currentImage.style.display = 'none';
+        imageLoading.style.display = 'none';
+        imageError.style.display = 'block';
+        imageError.textContent = 'No images match the current filter. Try adjusting your criteria.';
+        clearModelOverviews();
+        return;
+    }
 
-    const [hash, entry] = imageEntries[currentImageIndex];
+    const [hash, entry] = filteredEntries[currentImageIndex];
 
     // Update navigation
     updateNavigation();
@@ -123,7 +245,7 @@ function loadImage(imagePath) {
 
 // Update navigation buttons and counter
 function updateNavigation() {
-    const total = imageEntries.length;
+    const total = filteredEntries.length;
     const current = currentImageIndex + 1;
 
     imageCounter.textContent = `${current} / ${total}`;
@@ -141,7 +263,7 @@ function showPreviousImage() {
 
 // Navigate to next image
 function showNextImage() {
-    if (currentImageIndex < imageEntries.length - 1) {
+    if (currentImageIndex < filteredEntries.length - 1) {
         currentImageIndex++;
         showCurrentImage();
     }
@@ -205,6 +327,16 @@ function updateScoreBar(overview, type, score) {
         fill.setAttribute('data-score', score);
         text.textContent = `${score}%`;
     }
+}
+
+// Clear all model overviews
+function clearModelOverviews() {
+    ['gemini', 'claude', 'openai'].forEach(modelName => {
+        const overview = document.getElementById(`${modelName}-overview`);
+        ['keep', 'discard', 'unsure'].forEach(type => {
+            updateScoreBar(overview, type, 0);
+        });
+    });
 }
 
 // Clear a model overview when no data is available

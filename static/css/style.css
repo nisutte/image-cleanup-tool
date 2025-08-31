@@ -32,6 +32,112 @@ header {
     gap: 20px;
 }
 
+/* Filter Panel */
+.filter-panel {
+    background: white;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    margin-bottom: 20px;
+}
+
+.filter-panel h3 {
+    color: #2c3e50;
+    margin-bottom: 15px;
+    font-size: 1.2rem;
+}
+
+.filter-controls {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 15px;
+    align-items: end;
+    margin-bottom: 15px;
+}
+
+.filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.filter-group label {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #2c3e50;
+}
+
+.filter-group select,
+.filter-group input {
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 0.9rem;
+    background: white;
+}
+
+.filter-group select:focus,
+.filter-group input:focus {
+    outline: none;
+    border-color: #3498db;
+    box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
+}
+
+.filter-buttons {
+    display: flex;
+    gap: 10px;
+}
+
+.filter-btn {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 4px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.filter-btn.apply {
+    background: #27ae60;
+    color: white;
+}
+
+.filter-btn.apply:hover {
+    background: #229954;
+}
+
+.filter-btn.clear {
+    background: #95a5a6;
+    color: white;
+}
+
+.filter-btn.clear:hover {
+    background: #7f8c8d;
+}
+
+.filter-status {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 15px;
+    background: #ecf0f1;
+    border-radius: 4px;
+    font-size: 0.9rem;
+}
+
+.filter-status span {
+    font-weight: 500;
+}
+
+#filter-text {
+    color: #2c3e50;
+}
+
+#results-count {
+    color: #7f8c8d;
+}
+
 h1 {
     color: #2c3e50;
     font-size: 1.8rem;
@@ -442,6 +548,15 @@ h1 {
 
     .score-label {
         min-width: 70px;
+    }
+
+    .filter-controls {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+
+    .filter-buttons {
+        justify-content: center;
     }
 }
 
