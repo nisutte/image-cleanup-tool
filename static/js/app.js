@@ -20,7 +20,7 @@ const modelFilter = document.getElementById('model-filter');
 const classificationFilter = document.getElementById('classification-filter');
 const percentageFilter = document.getElementById('percentage-filter');
 const applyFilterBtn = document.getElementById('apply-filter');
-const clearFilterBtn = document.getElementById('clear-filter');
+const clearFilterBtn = document.getElementById('clear-filter')
 const filterStatus = document.getElementById('filter-status');
 const filterText = document.getElementById('filter-text');
 const resultsCount = document.getElementById('results-count');
@@ -62,27 +62,6 @@ async function loadCacheData() {
 function setupEventListeners() {
     prevBtn.addEventListener('click', showPreviousImage);
     nextBtn.addEventListener('click', showNextImage);
-
-    // Details toggle button
-    const toggleBtn = document.getElementById('toggle-details');
-    const detailsPanel = document.querySelector('.details-panel');
-    const detailsContent = document.querySelector('.details-content');
-
-    toggleBtn.addEventListener('click', () => {
-        const isCollapsed = detailsPanel.classList.contains('collapsed');
-
-        if (isCollapsed) {
-            detailsPanel.classList.remove('collapsed');
-            detailsPanel.classList.add('expanded');
-            detailsContent.style.display = 'block';
-            toggleBtn.innerHTML = '<span class="toggle-icon">▲</span> Hide Details';
-        } else {
-            detailsPanel.classList.remove('expanded');
-            detailsPanel.classList.add('collapsed');
-            detailsContent.style.display = 'none';
-            toggleBtn.innerHTML = '<span class="toggle-icon">▼</span> Show Details';
-        }
-    });
 
     // Filter event listeners
     applyFilterBtn.addEventListener('click', applyFilter);
@@ -141,24 +120,31 @@ function applyFilter() {
 // Check if an entry matches the current filter
 function matchesFilter(entry, filter) {
     const { model, classification, minPercentage } = filter;
+    const sizes = [256, 512, 768, 1024];
 
     if (model === 'any') {
-        // Check if any model meets the criteria
+        // Check if any model and any size meets the criteria
         const models = ['gemini', 'claude', 'openai'];
         return models.some(modelName => {
-            const modelData = entry.models[modelName];
+            return sizes.some(size => {
+                const modelKey = `${modelName}_${size}`;
+                const modelData = entry.models[modelKey] || entry.models[modelName]; // Fallback to legacy format
+                if (!modelData || !modelData.result || !modelData.result.final_classification) {
+                    return false;
+                }
+                return modelData.result.final_classification[classification] >= minPercentage;
+            });
+        });
+    } else {
+        // Check specific model across all sizes
+        return sizes.some(size => {
+            const modelKey = `${model}_${size}`;
+            const modelData = entry.models[modelKey] || entry.models[model]; // Fallback to legacy format
             if (!modelData || !modelData.result || !modelData.result.final_classification) {
                 return false;
             }
             return modelData.result.final_classification[classification] >= minPercentage;
         });
-    } else {
-        // Check specific model
-        const modelData = entry.models[model];
-        if (!modelData || !modelData.result || !modelData.result.final_classification) {
-            return false;
-        }
-        return modelData.result.final_classification[classification] >= minPercentage;
     }
 }
 
@@ -269,25 +255,29 @@ function showNextImage() {
     }
 }
 
-// Update model comparison display
+// Update model comparison display for all sizes
 function updateModelComparisons(entry) {
     const models = ['gemini', 'claude', 'openai'];
+    const sizes = [256, 512, 768, 1024];
 
-    models.forEach(model => {
-        const modelData = entry.models[model];
-        if (modelData && modelData.result) {
-            updateModelOverview(model, modelData.result);
-            updateModelSection(model, modelData.result);
-        } else {
-            clearModelOverview(model);
-            clearModelSection(model);
-        }
+    sizes.forEach(size => {
+        models.forEach(model => {
+            // Try size-specific key first, then fallback to legacy format
+            const modelKey = `${model}_${size}`;
+            const modelData = entry.models[modelKey] || entry.models[model];
+
+            if (modelData && modelData.result) {
+                updateModelOverview(model, size, modelData.result);
+            } else {
+                clearModelOverview(model, size);
+            }
+        });
     });
 }
 
-// Update a specific model's overview in the top section
-function updateModelOverview(modelName, result) {
-    const overview = document.getElementById(`${modelName}-overview`);
+// Update a specific model's overview for a specific size
+function updateModelOverview(modelName, size, result) {
+    const overview = document.getElementById(`${modelName}-${size}-overview`);
 
     if (result.final_classification) {
         // Update keep score bar
@@ -329,19 +319,21 @@ function updateScoreBar(overview, type, score) {
     }
 }
 
-// Clear all model overviews
+// Clear all model overviews for all sizes
 function clearModelOverviews() {
-    ['gemini', 'claude', 'openai'].forEach(modelName => {
-        const overview = document.getElementById(`${modelName}-overview`);
-        ['keep', 'discard', 'unsure'].forEach(type => {
-            updateScoreBar(overview, type, 0);
+    const models = ['gemini', 'claude', 'openai'];
+    const sizes = [256, 512, 768, 1024];
+
+    sizes.forEach(size => {
+        models.forEach(modelName => {
+            clearModelOverview(modelName, size);
         });
     });
 }
 
 // Clear a model overview when no data is available
-function clearModelOverview(modelName) {
-    const overview = document.getElementById(`${modelName}-overview`);
+function clearModelOverview(modelName, size) {
+    const overview = document.getElementById(`${modelName}-${size}-overview`);
 
     // Clear score bars
     ['keep', 'discard', 'unsure'].forEach(type => {
@@ -349,68 +341,7 @@ function clearModelOverview(modelName) {
     });
 }
 
-// Update a specific model's section
-function updateModelSection(modelName, result) {
-    const section = document.getElementById(`${modelName}-section`);
 
-    // Update category scores
-    const categoriesContainer = section.querySelector(`#${modelName}-categories`);
-    categoriesContainer.innerHTML = '';
-
-    if (result.category_scores) {
-        Object.entries(result.category_scores).forEach(([category, score]) => {
-            const categoryItem = document.createElement('div');
-            categoryItem.className = 'category-item';
-
-            const label = document.createElement('span');
-            label.className = 'category-label';
-            label.textContent = formatCategoryName(category);
-
-            const value = document.createElement('span');
-            value.className = 'category-value';
-            value.textContent = `${score}%`;
-
-            categoryItem.appendChild(label);
-            categoryItem.appendChild(value);
-            categoriesContainer.appendChild(categoryItem);
-        });
-    }
-
-    // Update description
-    const description = section.querySelector(`#${modelName}-description`);
-    description.textContent = result.description || 'No description available';
-
-    // Update reasoning
-    const reasoning = section.querySelector(`#${modelName}-reasoning`);
-    reasoning.textContent = result.reasoning || 'No reasoning provided';
-}
-
-// Clear a model section when no data is available
-function clearModelSection(modelName) {
-    const section = document.getElementById(`${modelName}-section`);
-
-    // Clear categories
-    section.querySelector(`#${modelName}-categories`).innerHTML = '<div class="category-item"><span class="category-label">No data available</span></div>';
-
-    // Clear description and reasoning
-    section.querySelector(`#${modelName}-description`).textContent = 'No data available';
-    section.querySelector(`#${modelName}-reasoning`).textContent = 'No data available';
-}
-
-// Format category names for display
-function formatCategoryName(category) {
-    const nameMap = {
-        'blurry': 'Blurry',
-        'meme': 'Meme',
-        'screenshot': 'Screenshot',
-        'document': 'Document',
-        'personal': 'Personal',
-        'non_personal': 'Non-Personal',
-        'contains_faces': 'Contains Faces'
-    };
-
-    return nameMap[category] || category.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-}
 
 // Show error message
 function showError(message) {

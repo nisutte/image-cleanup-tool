@@ -33,6 +33,22 @@ def get_cache():
     except json.JSONDecodeError:
         return jsonify({"error": "Invalid cache file format"}), 500
 
+@app.route('/api/sizes')
+def get_sizes():
+    """API endpoint to get available image sizes."""
+    sizes = [256, 512, 768, 1024]  # Common sizes for vision models
+    return jsonify({"sizes": sizes, "default": 512})
+
+@app.route('/api/analyze/<model>/<int:size>', methods=['POST'])
+def analyze_with_size(model, size):
+    """API endpoint to trigger analysis for a specific model and size."""
+    try:
+        # This would need to be implemented with proper async handling
+        # For now, return a placeholder response
+        return jsonify({"status": "not_implemented", "message": f"Analysis for {model} with size {size} not yet implemented"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/images/<path:filename>')
 def get_image(filename):
     """Serve images from the images directory."""
