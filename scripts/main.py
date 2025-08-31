@@ -1,32 +1,29 @@
 #!/usr/bin/env python3
 """
-main.py: Command-line interface for image-cleanup-tool.
-
-Runs a non-interactive scan to count images by extension and show a capture-date histogram.
-Pass --ui to launch the interactive Textual UI.
+Main CLI entry point for image cleanup tool.
 """
-
 import sys
 import argparse
 from pathlib import Path
 
 from image_cleanup_tool.core.backbone import ImageScanEngine
 
+
 def parse_args():
-    parser = argparse.ArgumentParser(
-        description="Scan a directory for image files, display counts and optionally launch the interactive UI."
-    )
-    parser.add_argument(
-        "input", help="Path to directory of images"
-    )
-    parser.add_argument(
-        "--ui",
-        action="store_true",
-        help="Launch the interactive Rich UI instead of non-interactive CLI output",
-    )
+    parser = argparse.ArgumentParser(description='Image cleanup and analysis tool')
+    parser.add_argument('input', help='Directory to scan for images')
+    parser.add_argument('--api', 
+                      choices=['openai', 'claude', 'gemini'],
+                      default='gemini',
+                      help='API provider to use for analysis (default: gemini)')
+    parser.add_argument('--ui',
+                      action='store_true',
+                      help='Launch the interactive Rich UI instead of CLI output')
     return parser.parse_args()
 
+
 def print_histogram(date_ext_counter):
+    """Print histogram of images by year."""
     totals = [sum(cnts.values()) for cnts in date_ext_counter.values()]
     max_total = max(totals) if totals else 0
     BAR_WIDTH = 30
@@ -36,7 +33,7 @@ def print_histogram(date_ext_counter):
         bar = "█" * length
         print(f"{year:>4} | {bar} {total_y}")
 
-def cli_run(root: Path):
+def cli_run(root: Path, api_provider: str):
     print(f"Scanning files under {root}...")
     engine = ImageScanEngine(root)
     engine.calculate_total()
@@ -48,7 +45,7 @@ def cli_run(root: Path):
     print("\nCapture date histogram:")
     print_histogram(engine.date_ext_counter)
 
-    engine.check_cache()
+    engine.check_cache(api_provider)
     total = len(engine.image_paths)
     uncached = len(engine.uncached_images)
     cached = total - uncached
@@ -58,7 +55,7 @@ def cli_run(root: Path):
         from image_cleanup_tool.api import ImageProcessor, get_client
 
         # Create API client for analysis
-        api_client = get_client("openai")
+        api_client = get_client(api_provider)
 
         for path in engine.uncached_images:
             input(f"Press Enter to analyze {path.name} ({uncached - engine.uncached_images.index(path)} remaining)...")
@@ -68,7 +65,8 @@ def cli_run(root: Path):
             print(f"Result: {result.get('final_classification')}")
             if token_usage:
                 print(f"Tokens used: {token_usage.get('total_tokens', 'N/A')}")
-            engine.cache.set(path, result)
+            engine.cache.set(path, result, api_provider)
+
 
 def main():
     args = parse_args()
@@ -76,15 +74,16 @@ def main():
     if not root.exists():
         print(f"Error: Path '{root}' does not exist.", file=sys.stderr)
         sys.exit(1)
+    
     if args.ui:
         try:
             from image_cleanup_tool.ui import RichImageScannerUI
+            RichImageScannerUI.run(root, args.api)
         except ImportError:
             print("Error: Rich UI dependencies are not installed.", file=sys.stderr)
             sys.exit(1)
-        RichImageScannerUI.run(root)
     else:
-        cli_run(root)
+        cli_run(root, args.api)
 
 if __name__ == "__main__":
     main()

@@ -27,7 +27,6 @@ from ..utils.utils import (
     IMAGE_EXTS,
     get_capture_datetime,
     get_device,
-    get_final_classification_color_ratio,
 )
 
 
@@ -106,7 +105,7 @@ class ImageScanEngine:
         if self.on_scan_complete:
             self.on_scan_complete()
 
-    def check_cache(self) -> None:
+    def check_cache(self, api_provider: str) -> None:
         """
         Check which images are already in the cache.
         Calls on_cache_progress after each image and on_cache_complete at end.
@@ -115,7 +114,7 @@ class ImageScanEngine:
         known = 0
         self.uncached_images = []
         for path in self.image_paths:
-            if self.cache.get(path) is not None:
+            if self.cache.get(path, api_provider) is not None:
                 known += 1
             else:
                 self.uncached_images.append(path)
@@ -129,8 +128,9 @@ class ImageScanEngine:
 
 
     async def run_analysis_async(
-        self, max_concurrent: int = 10, requests_per_minute: int = 60, size: int = 512
-    ) -> None:  
+        self, max_concurrent: int = 10, requests_per_minute: int = 60, size: int = 512,
+        api_provider: str = "gemini"
+    ) -> None:
         """
         Analyze uncached images concurrently using AsyncWorkerPool.
         Calls on_analysis_progress for each result and on_analysis_complete at end.
@@ -145,6 +145,7 @@ class ImageScanEngine:
             max_concurrent=max_concurrent,
             requests_per_minute=requests_per_minute,
             size=size,
+            api_provider=api_provider
         )
         
         # Instead of waiting for all results, process them as they complete
@@ -172,11 +173,11 @@ class ImageScanEngine:
                 if latest_path and latest_result:
                     # Cache successful results
                     if not isinstance(latest_result, Exception):
-                        self.cache.set(latest_path, latest_result)
+                        self.cache.set(latest_path, latest_result, pool.api_provider)
                         
                         # Update cache progress since we just cached a new result
                         if self.on_cache_progress:
-                            cached_count = sum(1 for path in self.image_paths if self.cache.get(path) is not None)
+                            cached_count = sum(1 for path in self.image_paths if self.cache.get(path, api_provider) is not None)
                             self.on_cache_progress(cached_count, self.total_files)
                     
                     # Call progress callback

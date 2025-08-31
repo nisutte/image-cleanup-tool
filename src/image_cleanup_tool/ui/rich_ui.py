@@ -33,8 +33,9 @@ logger = get_logger(__name__)
 class RichImageScannerUI:
     """Rich-based UI for scanning images and displaying information in real-time."""
 
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, api_provider: str):
         self.engine = ImageScanEngine(root)
+        self.api_provider = api_provider
         self.console = Console()
         self.analysis_results: List[str] = []
         self.scan_complete = False
@@ -257,7 +258,8 @@ class RichImageScannerUI:
                 self.engine.run_analysis_async(
                     max_concurrent=5,
                     requests_per_minute=30,
-                    size=512
+                    size=512,
+                    api_provider=self.api_provider
                 )
             )
         except Exception as e:
@@ -314,7 +316,7 @@ class RichImageScannerUI:
                         "Checking cache...",
                         total=len(self.engine.image_paths)
                     )
-                    self.engine.check_cache()
+                    self.engine.check_cache(self.api_provider)
                     
                     # Wait for cache completion
                     while not self.cache_complete:
@@ -336,7 +338,7 @@ class RichImageScannerUI:
             self.console.print(f"[red]Error: {e}[/red]")
 
     @staticmethod
-    def run(root: Path) -> None:
+    def run(root: Path, api_provider: str) -> None:
         """Convenience method to launch the Rich app."""
-        ui = RichImageScannerUI(root)
+        ui = RichImageScannerUI(root, api_provider)
         ui._run_ui() 

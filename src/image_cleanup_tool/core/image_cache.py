@@ -41,32 +41,38 @@ CACHE_VERSION = "1.0"
 # Cache entry structure
 class CacheEntry:
     """Structure for cache entries with metadata."""
-    def __init__(self, path: str, result: str, version: str = CACHE_VERSION, 
-                 timestamp: float = None, model: str = None):
+    def __init__(self, path: str, result: str = None, version: str = CACHE_VERSION, 
+                 models: Dict[str, Dict[str, Any]] = None, model: str = None):
         self.path = path
-        self.result = result
         self.version = version
-        self.timestamp = timestamp or time.time()
-        self.model = model or "gpt-4.1-nano"  # Default model
+        self.models = models or {}
+        if result is not None:
+            if model is None:
+                raise ValueError("model must be provided when setting a result")
+            self.models[model] = {
+                "result": result,
+                "timestamp": time.time()
+            }
     
     def to_dict(self) -> Dict[str, Any]:
         return {
             "path": self.path,
-            "result": self.result,
             "version": self.version,
-            "timestamp": self.timestamp,
-            "model": self.model
+            "models": self.models
         }
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'CacheEntry':
-        return cls(
-            path=data.get("path", ""),
-            result=data.get("result", ""),
-            version=data.get("version", "0.0"),
-            timestamp=data.get("timestamp", time.time()),
-            model=data.get("model", "gpt-4.1-nano")
-        )
+        # Handle both new format (with models) and legacy format
+        if "models" in data:
+            return cls(
+                path=data.get("path", ""),
+                version=data.get("version", "0.0"),
+                models=data["models"]
+            )
+        else:
+            # Legacy format - require model to be specified
+            raise ValueError("Legacy cache entries require explicit model specification")
 
 
 def load_cache(cache_file: Path = DEFAULT_CACHE_FILE) -> Dict[str, Any]:
@@ -205,9 +211,17 @@ class ImageCache:
             logger.info(f"Cache version mismatch. Expected {CACHE_VERSION}, got {self._cache.get('version', 'unknown')}")
             self._invalidate_outdated_entries()
 
-    def get(self, path: Path) -> Optional[str]:
-        """Return cached analysis result for image, or None if not present.
-        Only returns results from current version and model."""
+    def get(self, path: Path, model: str) -> Optional[str]:
+        """Return cached analysis result for image and model, or None if not present.
+        Only returns results from current version.
+        
+        Args:
+            path: Path to the image file
+            model: Name of the model/API to retrieve results for (required)
+        """
+        if not model:
+            raise ValueError("model parameter is required")
+            
         key = compute_image_hash(path)
         entry_data = self._cache.get("entries", {}).get(key)
         
@@ -218,25 +232,41 @@ class ImageCache:
         if isinstance(entry_data, dict):
             entry = CacheEntry.from_dict(entry_data)
         else:
-            # Legacy format
-            return entry_data
-        
-        # Check if entry is valid (current version and model)
-        if entry.version != CACHE_VERSION or entry.model != self.model:
-            logger.debug(f"Cache entry outdated for {path.name}: version={entry.version}, model={entry.model}")
+            # Legacy format - no longer supported without model
             return None
         
-        return entry.result
+        # Check if entry is valid (current version)
+        if entry.version != CACHE_VERSION:
+            logger.debug(f"Cache entry outdated for {path.name}: version={entry.version}")
+            return None
+        
+        return entry.models.get(model, {}).get("result")
 
-    def set(self, path: Path, result: str) -> None:
-        """Store the file path and analysis result for image, and persist cache to disk."""
+    def set(self, path: Path, result: str, model: str) -> None:
+        """Store the file path and analysis result for image under specified model, and persist cache to disk.
+        
+        Args:
+            path: Path to the image file
+            result: Analysis result to store
+            model: Name of the model/API that generated the result (required)
+        """
+        if not model:
+            raise ValueError("model parameter is required")
+            
         key = compute_image_hash(path)
-        entry = CacheEntry(
-            path=str(path),
-            result=result,
-            version=CACHE_VERSION,
-            model=self.model
-        )
+        
+        # Get existing entry or create new one
+        entry_data = self._cache.get("entries", {}).get(key)
+        if entry_data is not None and isinstance(entry_data, dict):
+            entry = CacheEntry.from_dict(entry_data)
+        else:
+            entry = CacheEntry(path=str(path))
+        
+        # Update the model entry
+        entry.models[model] = {
+            "result": result,
+            "timestamp": time.time()
+        }
         
         if "entries" not in self._cache:
             self._cache["entries"] = {}
@@ -245,7 +275,7 @@ class ImageCache:
         save_cache(self._cache, self.cache_file)
 
     def _invalidate_outdated_entries(self) -> None:
-        """Remove entries that don't match current version or model."""
+        """Remove entries that don't match current version."""
         if "entries" not in self._cache:
             return
         
@@ -255,7 +285,7 @@ class ImageCache:
         for key, entry_data in self._cache["entries"].items():
             if isinstance(entry_data, dict):
                 entry = CacheEntry.from_dict(entry_data)
-                if entry.version == CACHE_VERSION and entry.model == self.model:
+                if entry.version == CACHE_VERSION:
                     valid_entries[key] = entry_data
             else:
                 # Legacy entry - remove it
@@ -286,28 +316,50 @@ class ImageCache:
         entries = self._cache["entries"]
         original_count = len(entries)
         
-        # Remove entries older than max_age_days
+        # Remove model entries older than max_age_days
         cutoff_time = time.time() - (max_age_days * 24 * 60 * 60)
         valid_entries = {}
         
         for key, entry_data in entries.items():
             if isinstance(entry_data, dict):
                 entry = CacheEntry.from_dict(entry_data)
-                if entry.timestamp >= cutoff_time:
-                    valid_entries[key] = entry_data
+                # Filter models by timestamp
+                valid_models = {
+                    model: data for model, data in entry.models.items()
+                    if data.get("timestamp", 0) >= cutoff_time
+                }
+                if valid_models:
+                    entry.models = valid_models
+                    valid_entries[key] = entry.to_dict()
             else:
                 # Legacy entry - remove it
                 continue
         
         # If still too many entries, remove oldest ones
         if len(valid_entries) > max_entries:
+            # Get all model timestamps across all entries
+            all_timestamps = []
+            for entry_data in valid_entries.values():
+                entry = CacheEntry.from_dict(entry_data)
+                for model_data in entry.models.values():
+                    all_timestamps.append((entry_data, model_data.get("timestamp", 0)))
+            
             # Sort by timestamp and keep only the newest max_entries
-            sorted_entries = sorted(
-                valid_entries.items(),
-                key=lambda x: CacheEntry.from_dict(x[1]).timestamp,
-                reverse=True
-            )
-            valid_entries = dict(sorted_entries[:max_entries])
+            all_timestamps.sort(key=lambda x: x[1], reverse=True)
+            
+            # Rebuild the cache with only the newest entries
+            new_entries = {}
+            for entry_data, _ in all_timestamps[:max_entries]:
+                entry = CacheEntry.from_dict(entry_data)
+                if entry.path not in new_entries:
+                    new_entries[entry.path] = entry_data
+                else:
+                    # Merge models from duplicate entries
+                    existing_entry = CacheEntry.from_dict(new_entries[entry.path])
+                    existing_entry.models.update(entry.models)
+                    new_entries[entry.path] = existing_entry.to_dict()
+            
+            valid_entries = new_entries
         
         self._cache["entries"] = valid_entries
         removed_count = original_count - len(valid_entries)
@@ -321,17 +373,21 @@ class ImageCache:
     def get_stats(self) -> Dict[str, Any]:
         """Get cache statistics."""
         if "entries" not in self._cache:
-            return {"total_entries": 0, "size_bytes": 0, "oldest_entry": None, "newest_entry": None}
+            return {"total_entries": 0, "total_models": 0, "size_bytes": 0, "oldest_entry": None, "newest_entry": None}
         
         entries = self._cache["entries"]
         if not entries:
-            return {"total_entries": 0, "size_bytes": 0, "oldest_entry": None, "newest_entry": None}
+            return {"total_entries": 0, "total_models": 0, "size_bytes": 0, "oldest_entry": None, "newest_entry": None}
         
         timestamps = []
+        total_models = 0
+        
         for entry_data in entries.values():
             if isinstance(entry_data, dict):
                 entry = CacheEntry.from_dict(entry_data)
-                timestamps.append(entry.timestamp)
+                total_models += len(entry.models)
+                for model_data in entry.models.values():
+                    timestamps.append(model_data.get("timestamp", 0))
         
         if timestamps:
             oldest = min(timestamps)
@@ -341,6 +397,7 @@ class ImageCache:
         
         return {
             "total_entries": len(entries),
+            "total_models": total_models,
             "size_bytes": len(json.dumps(self._cache)),
             "oldest_entry": datetime.fromtimestamp(oldest).isoformat() if oldest else None,
             "newest_entry": datetime.fromtimestamp(newest).isoformat() if newest else None,
