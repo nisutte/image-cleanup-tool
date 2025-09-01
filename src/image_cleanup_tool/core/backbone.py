@@ -105,7 +105,7 @@ class ImageScanEngine:
         if self.on_scan_complete:
             self.on_scan_complete()
 
-    def check_cache(self, api_provider: str) -> None:
+    def check_cache(self, api_provider: str, size: int = 512) -> None:
         """
         Check which images are already in the cache.
         Calls on_cache_progress after each image and on_cache_complete at end.
@@ -114,7 +114,7 @@ class ImageScanEngine:
         known = 0
         self.uncached_images = []
         for path in self.image_paths:
-            if self.cache.get(path, api_provider) is not None:
+            if self.cache.get(path, api_provider, size) is not None:
                 known += 1
             else:
                 self.uncached_images.append(path)
@@ -129,10 +129,12 @@ class ImageScanEngine:
 
     async def run_analysis_async(
         self, max_concurrent: int = 10, requests_per_minute: int = 60, size: int = 512,
-        api_provider: str = "gemini"
+        api_providers: list[str] = None
     ) -> None:
+        if api_providers is None:
+            api_providers = ["gemini"]
         """
-        Analyze uncached images concurrently using AsyncWorkerPool.
+        Analyze uncached images concurrently using AsyncWorkerPool for multiple APIs.
         Calls on_analysis_progress for each result and on_analysis_complete at end.
         """
         if not self.uncached_images:
@@ -140,56 +142,70 @@ class ImageScanEngine:
                 self.on_analysis_complete()
             return
 
-        pool = AsyncWorkerPool(
-            image_paths=self.uncached_images,
-            max_concurrent=max_concurrent,
-            requests_per_minute=requests_per_minute,
-            size=size,
-            api_provider=api_provider
-        )
-        
-        # Instead of waiting for all results, process them as they complete
-        total = len(self.uncached_images)
-        analyzed = 0
-        
-        # Create tasks for all images
-        tasks = [pool._analyze_single_image(path) for path in self.uncached_images]
-        
-        # Process results as they complete
-        for completed_task in asyncio.as_completed(tasks):
-            try:
-                await completed_task
-                analyzed += 1
-                
-                # Get the latest result from the pool
-                latest_path = None
-                latest_result = None
-                for path, result in pool.results.items():
-                    if path not in self._processed_paths:
-                        latest_path = path
-                        latest_result = result.result
-                        break
-                
-                if latest_path and latest_result:
-                    # Cache successful results
-                    if not isinstance(latest_result, Exception):
-                        self.cache.set(latest_path, latest_result, pool.api_provider)
-                        
-                        # Update cache progress since we just cached a new result
-                        if self.on_cache_progress:
-                            cached_count = sum(1 for path in self.image_paths if self.cache.get(path, api_provider) is not None)
-                            self.on_cache_progress(cached_count, self.total_files)
-                    
-                    # Call progress callback
-                    if self.on_analysis_progress:
-                        self.on_analysis_progress(latest_path, analyzed, total, latest_result)
-                    
-                    # Track processed paths
-                    self._processed_paths.add(latest_path)
-                
-            except Exception as e:
-                analyzed += 1
-        
+        # Process each API provider
+        for api_provider in api_providers:
+            print(f"\n=== Analyzing with {api_provider.upper()} ===")
+
+            # Reset processed paths for each API
+            self._processed_paths = set()
+
+            # Re-check cache for this specific API
+            self.check_cache(api_provider, size)
+
+            if not self.uncached_images:
+                print(f"All images already cached for {api_provider}")
+                continue
+
+            pool = AsyncWorkerPool(
+                image_paths=self.uncached_images,
+                api_name=api_provider,
+                max_concurrent=max_concurrent,
+                requests_per_minute=requests_per_minute,
+                size=size
+            )
+
+            # Instead of waiting for all results, process them as they complete
+            total = len(self.uncached_images)
+            analyzed = 0
+
+            # Create tasks for all images
+            tasks = [asyncio.create_task(pool._analyze_single_image(path)) for path in self.uncached_images]
+
+            # Process results as they complete
+            for completed_task in asyncio.as_completed(tasks):
+                try:
+                    await completed_task
+                    analyzed += 1
+
+                    # Get the latest result from the pool
+                    latest_path = None
+                    latest_result = None
+                    for path, result in pool.results.items():
+                        if path not in self._processed_paths:
+                            latest_path = path
+                            latest_result = result.result
+                            break
+
+                    if latest_path and latest_result:
+                        # Cache successful results
+                        if not isinstance(latest_result, Exception):
+                            self.cache.set(latest_path, latest_result, api_provider, size)
+
+                            # Update cache progress since we just cached a new result
+                            if self.on_cache_progress:
+                                cached_count = sum(1 for path in self.image_paths if self.cache.get(path, api_provider, size) is not None)
+                                self.on_cache_progress(cached_count, self.total_files)
+
+                        # Call progress callback
+                        if self.on_analysis_progress:
+                            self.on_analysis_progress(latest_path, analyzed, total, latest_result)
+
+                        # Track processed paths
+                        self._processed_paths.add(latest_path)
+
+                except Exception as e:
+                    analyzed += 1
+
         # Call completion callback
         if self.on_analysis_complete:
             self.on_analysis_complete()

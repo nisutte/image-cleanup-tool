@@ -41,17 +41,20 @@ CACHE_VERSION = "1.0"
 # Cache entry structure
 class CacheEntry:
     """Structure for cache entries with metadata."""
-    def __init__(self, path: str, result: str = None, version: str = CACHE_VERSION, 
-                 models: Dict[str, Dict[str, Any]] = None, model: str = None):
+    def __init__(self, path: str, result: str = None, version: str = CACHE_VERSION,
+                 models: Dict[str, Dict[str, Any]] = None, model: str = None, size: int = 512):
         self.path = path
         self.version = version
         self.models = models or {}
         if result is not None:
             if model is None:
                 raise ValueError("model must be provided when setting a result")
-            self.models[model] = {
+            # Store results under model + size key
+            model_key = f"{model}_{size}"
+            self.models[model_key] = {
                 "result": result,
-                "timestamp": time.time()
+                "timestamp": time.time(),
+                "size": size
             }
     
     def to_dict(self) -> Dict[str, Any]:
@@ -211,66 +214,77 @@ class ImageCache:
             logger.info(f"Cache version mismatch. Expected {CACHE_VERSION}, got {self._cache.get('version', 'unknown')}")
             self._invalidate_outdated_entries()
 
-    def get(self, path: Path, model: str) -> Optional[str]:
-        """Return cached analysis result for image and model, or None if not present.
+    def get(self, path: Path, model: str, size: int = 512) -> Optional[str]:
+        """Return cached analysis result for image, model, and size, or None if not present.
         Only returns results from current version.
-        
+
         Args:
             path: Path to the image file
             model: Name of the model/API to retrieve results for (required)
+            size: Image size used for analysis (default: 512)
         """
         if not model:
             raise ValueError("model parameter is required")
-            
+
         key = compute_image_hash(path)
         entry_data = self._cache.get("entries", {}).get(key)
-        
+
         if entry_data is None:
             return None
-        
+
         # Handle both new CacheEntry format and legacy dict format
         if isinstance(entry_data, dict):
             entry = CacheEntry.from_dict(entry_data)
         else:
             # Legacy format - no longer supported without model
             return None
-        
+
         # Check if entry is valid (current version)
         if entry.version != CACHE_VERSION:
             logger.debug(f"Cache entry outdated for {path.name}: version={entry.version}")
             return None
-        
+
+        # Look for result with specific size
+        model_key = f"{model}_{size}"
+        result_data = entry.models.get(model_key)
+        if result_data:
+            return result_data.get("result")
+
+        # Fallback: try legacy format without size
         return entry.models.get(model, {}).get("result")
 
-    def set(self, path: Path, result: str, model: str) -> None:
-        """Store the file path and analysis result for image under specified model, and persist cache to disk.
-        
+    def set(self, path: Path, result: str, model: str, size: int = 512) -> None:
+        """Store the file path and analysis result for image under specified model and size, and persist cache to disk.
+
         Args:
             path: Path to the image file
             result: Analysis result to store
             model: Name of the model/API that generated the result (required)
+            size: Image size used for analysis (default: 512)
         """
         if not model:
             raise ValueError("model parameter is required")
-            
+
         key = compute_image_hash(path)
-        
+
         # Get existing entry or create new one
         entry_data = self._cache.get("entries", {}).get(key)
         if entry_data is not None and isinstance(entry_data, dict):
             entry = CacheEntry.from_dict(entry_data)
         else:
             entry = CacheEntry(path=str(path))
-        
-        # Update the model entry
-        entry.models[model] = {
+
+        # Update the model entry with size-specific key
+        model_key = f"{model}_{size}"
+        entry.models[model_key] = {
             "result": result,
-            "timestamp": time.time()
+            "timestamp": time.time(),
+            "size": size
         }
-        
+
         if "entries" not in self._cache:
             self._cache["entries"] = {}
-        
+
         self._cache["entries"][key] = entry.to_dict()
         save_cache(self._cache, self.cache_file)
 

@@ -33,9 +33,10 @@ logger = get_logger(__name__)
 class RichImageScannerUI:
     """Rich-based UI for scanning images and displaying information in real-time."""
 
-    def __init__(self, root: Path, api_provider: str):
+    def __init__(self, root: Path, api_providers: list[str], size: int = 512):
         self.engine = ImageScanEngine(root)
-        self.api_provider = api_provider
+        self.api_providers = api_providers if isinstance(api_providers, list) else [api_providers]
+        self.size = size
         self.console = Console()
         self.analysis_results: List[str] = []
         self.scan_complete = False
@@ -43,7 +44,8 @@ class RichImageScannerUI:
         self.analysis_started = False
         self.live_display = None
         self.layout = None
-        self.status_text = Text("Initializing...", style="blue")
+        self.current_api_index = 0
+        self.status_text = Text(f"Initializing with {size}x{size} images and {len(self.api_providers)} API(s): {', '.join(self.api_providers)}", style="blue")
 
     def _create_layout(self) -> Layout:
         """Create the main layout structure."""
@@ -179,22 +181,42 @@ class RichImageScannerUI:
                 self.live_display.refresh()
 
     def _on_cache_complete(self, known: int, total: int):
-        """Handle cache completion."""
-        self.cache_complete = True
+        """Handle cache completion for current API."""
+        current_api = self.api_providers[self.current_api_index] if self.current_api_index < len(self.api_providers) else "unknown"
         self.cache_progress.update(self.cache_task_id, completed=known, total=total)
-        
+
         uncached = total - known
-        self.status_text = Text(f"✓ Cache check complete: {known}/{total} known", style="green")
-        
+        self.status_text = Text(f"✓ Cache check complete for {current_api}: {known}/{total} known", style="green")
+
         if uncached > 0:
-            # Start analysis automatically
+            # Start analysis automatically for current API
             self._start_analysis_auto()
         else:
-            self.status_text = Text("✓ All images already analyzed!", style="green")
-        
+            # Check if we have more APIs to process
+            if self.current_api_index < len(self.api_providers) - 1:
+                self.current_api_index += 1
+                self._start_next_api_processing()
+            else:
+                self.status_text = Text("✓ All images analyzed with all APIs!", style="green")
+
         # Force refresh the display
         if self.live_display:
             self.live_display.refresh()
+
+    def _start_next_api_processing(self):
+        """Start processing the next API provider."""
+        if self.current_api_index < len(self.api_providers):
+            next_api = self.api_providers[self.current_api_index]
+            self.status_text = Text(f"Starting cache check for {next_api}...", style="blue")
+            self.cache_complete = False
+
+            # Show cache progress bar
+            self.cache_progress.visible = True
+            self.cache_task_id = self.cache_progress.add_task(
+                f"Checking cache for {next_api}...",
+                total=len(self.engine.image_paths)
+            )
+            self.engine.check_cache(next_api, self.size)
 
     def _on_analysis_progress(self, path: Path, analyzed: int, total: int, result: Any):
         """Handle analysis progress updates."""
@@ -214,56 +236,66 @@ class RichImageScannerUI:
             self.live_display.refresh()
 
     def _start_analysis_auto(self):
-        """Start the analysis process automatically."""
+        """Start the analysis process automatically for current API."""
+        current_api = self.api_providers[self.current_api_index]
         self.analysis_started = True
         uncached_count = len(self.engine.uncached_images)
-        
+
         if uncached_count == 0:
             return
-        
+
         # Show analysis progress bar
         self.analysis_progress.visible = True
         self.analysis_task_id = self.analysis_progress.add_task(
-            "Analyzing images...",
+            f"Analyzing images with {current_api}...",
             total=uncached_count
         )
-        
+
         # Start analysis in background thread
-        analysis_thread = threading.Thread(target=self._run_analysis_sync)
+        analysis_thread = threading.Thread(target=self._run_analysis_sync, args=(current_api,))
         analysis_thread.daemon = True
         analysis_thread.start()
-        
+
         # Store the thread for waiting
         self.analysis_thread = analysis_thread
 
     def _on_analysis_complete(self):
-        """Handle analysis completion."""
+        """Handle analysis completion for current API."""
+        current_api = self.api_providers[self.current_api_index] if self.current_api_index < len(self.api_providers) else "unknown"
         self.analysis_progress.update(self.analysis_task_id, completed=self.analysis_progress.tasks[0].total)
-        self.status_text = Text("✓ Analysis complete!", style="green")
-        self._update_results_display("[bold green]All images analyzed![/bold green]")
-        
+
+        # Check if we have more APIs to process
+        if self.current_api_index < len(self.api_providers) - 1:
+            self.current_api_index += 1
+            self.status_text = Text(f"✓ Analysis complete for {current_api}. Starting next API...", style="green")
+            self.analysis_started = False
+            self._start_next_api_processing()
+        else:
+            self.status_text = Text("✓ All analysis complete for all APIs!", style="green")
+            self._update_results_display("[bold green]All images analyzed with all APIs![/bold green]")
+
         # Force refresh the display
         if self.live_display:
             self.live_display.refresh()
 
-    def _run_analysis_sync(self):
-        """Run analysis synchronously in a separate thread."""
+    def _run_analysis_sync(self, api_provider: str):
+        """Run analysis synchronously in a separate thread for a specific API."""
         try:
             # Create a new event loop for this thread
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            
-            # Run the async analysis
+
+            # Run the async analysis for this specific API
             loop.run_until_complete(
                 self.engine.run_analysis_async(
                     max_concurrent=5,
                     requests_per_minute=30,
-                    size=512,
-                    api_provider=self.api_provider
+                    size=self.size,
+                    api_providers=[api_provider]
                 )
             )
         except Exception as e:
-            self.console.print(f"[red]Analysis error: {e}[/red]")
+            self.console.print(f"[red]Analysis error for {api_provider}: {e}[/red]")
 
     def _run_ui(self):
         """Run the Rich-based UI."""
@@ -308,15 +340,9 @@ class RichImageScannerUI:
                 # Start scanning
                 self.engine.scan_files()
                 
-                # After scan, start cache check
+                # After scan, start cache check for first API
                 if self.scan_complete:
-                    # Show cache progress bar
-                    self.cache_progress.visible = True
-                    self.cache_task_id = self.cache_progress.add_task(
-                        "Checking cache...",
-                        total=len(self.engine.image_paths)
-                    )
-                    self.engine.check_cache(self.api_provider)
+                    self._start_next_api_processing()
                     
                     # Wait for cache completion
                     while not self.cache_complete:
@@ -338,7 +364,7 @@ class RichImageScannerUI:
             self.console.print(f"[red]Error: {e}[/red]")
 
     @staticmethod
-    def run(root: Path, api_provider: str) -> None:
+    def run(root: Path, api_providers: list[str], size: int = 512) -> None:
         """Convenience method to launch the Rich app."""
-        ui = RichImageScannerUI(root, api_provider)
+        ui = RichImageScannerUI(root, api_providers, size)
         ui._run_ui() 
