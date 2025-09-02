@@ -11,6 +11,7 @@ import asyncio
 
 import time
 import threading
+from queue import Queue, Empty
 from pathlib import Path
 from collections import Counter
 from typing import Any, List
@@ -46,6 +47,8 @@ class RichImageScannerUI:
         self.layout = None
         self.current_api_index = 0
         self.status_text = Text(f"Initializing with {size}x{size} images and {len(self.api_providers)} API(s): {', '.join(self.api_providers)}", style="blue")
+        # Thread-safe UI event queue for updates from background threads
+        self.ui_events: Queue = Queue()
 
     def _create_layout(self) -> Layout:
         """Create the main layout structure."""
@@ -65,6 +68,8 @@ class RichImageScannerUI:
         # Create a table to hold all progress bars
         table = Table(show_header=False, box=None, padding=0)
         table.add_column("Progress", width=80)
+        # Status line at the top
+        table.add_row(self.status_text)
         
         # Scan progress bar
         scan_progress = Progress(
@@ -130,55 +135,36 @@ class RichImageScannerUI:
     def _update_results_display(self, new_result: str):
         """Update the results display with new analysis result."""
         self.analysis_results.append(new_result)
-        
+
         # Keep only the last 3 results
         if len(self.analysis_results) > 3:
             self.analysis_results = self.analysis_results[-3:]
-        
-        # Update the display - join with double newlines for better spacing
-        display_text = "\n\n".join(self.analysis_results)
-        self.results_text = Text(display_text)
-        
-        # Update the results section in the layout
-        if self.live_display and self.layout:
-            # Create a new results panel with updated text
-            results_panel = Panel(
-                self.results_text,
-                title="[bold]Analysis Results",
-                border_style="green",
-                width=120
-            )
-            
-            # Update only the results section in the layout
-            self.layout["results_section"].update(results_panel)
-            self.live_display.update(self.layout)
 
-    def _on_scan_progress(self, scanned: int, total: int, ext_counter: Counter, 
+        # Mutate the existing Text object to avoid replacing renderables
+        display_text = "\n\n".join(self.analysis_results)
+        self.results_text.plain = display_text
+
+    def _on_scan_progress(self, scanned: int, total: int, ext_counter: Counter,
                          device_counter: Counter, date_ext_counter: dict, non_image: int):
         """Handle scan progress updates."""
         if not self.scan_complete:
             self.scan_progress.update(self.scan_task_id, completed=scanned, total=total)
-            # Force refresh the display
-            if self.live_display:
-                self.live_display.refresh()
+            # Live display will auto-refresh, no need for manual refresh
 
     def _on_scan_complete(self):
         """Handle scan completion."""
         self.scan_complete = True
         self.scan_progress.update(self.scan_task_id, completed=self.engine.total_files)
-        self.status_text = Text("✓ File scanning complete!", style="green")
-        # Force refresh the display
-        if self.live_display:
-            self.live_display.refresh()
+        self.status_text.plain = "✓ File scanning complete!"
+        self.status_text.style = "green"
+        # Live display will auto-refresh, no need for manual refresh
 
     def _on_cache_progress(self, scanned: int, known: int):
         """Handle cache progress updates."""
         if not self.cache_complete:
             total = len(self.engine.image_paths)
             self.cache_progress.update(self.cache_task_id, completed=known, total=total)
-            # Force refresh the display
-            if self.live_display:
-                self.live_display.refresh()
+            # Live display will auto-refresh, no need for manual refresh
 
     def _on_cache_complete(self, known: int, total: int):
         """Handle cache completion for current API."""
@@ -186,7 +172,9 @@ class RichImageScannerUI:
         self.cache_progress.update(self.cache_task_id, completed=known, total=total)
 
         uncached = total - known
-        self.status_text = Text(f"✓ Cache check complete for {current_api}: {known}/{total} known", style="green")
+        self.status_text.plain = f"✓ Cache check complete for {current_api}: {known}/{total} known"
+        self.status_text.style = "green"
+        self.cache_complete = True
 
         if uncached > 0:
             # Start analysis automatically for current API
@@ -197,17 +185,17 @@ class RichImageScannerUI:
                 self.current_api_index += 1
                 self._start_next_api_processing()
             else:
-                self.status_text = Text("✓ All images analyzed with all APIs!", style="green")
+                self.status_text.plain = "✓ All images analyzed with all APIs!"
+                self.status_text.style = "green"
 
-        # Force refresh the display
-        if self.live_display:
-            self.live_display.refresh()
+        # Live display will auto-refresh, no need for manual refresh
 
     def _start_next_api_processing(self):
         """Start processing the next API provider."""
         if self.current_api_index < len(self.api_providers):
             next_api = self.api_providers[self.current_api_index]
-            self.status_text = Text(f"Starting cache check for {next_api}...", style="blue")
+            self.status_text.plain = f"Starting cache check for {next_api}..."
+            self.status_text.style = "blue"
             self.cache_complete = False
 
             # Show cache progress bar
@@ -222,18 +210,12 @@ class RichImageScannerUI:
         """Handle analysis progress updates."""
         if not self.analysis_started:
             return
-            
-        # Update progress bar
-        self.analysis_progress.update(self.analysis_task_id, completed=analyzed, total=total)
-        self.cache_progress.update(self.cache_task_id, completed=analyzed, total=total)
-        
-        # Update results display
+
+        # Enqueue updates to be processed on the main thread
+        description = None
         if isinstance(result, dict) and "description" in result:
-            self._update_results_display(result.get("description", ""))
-        
-        # Force refresh the display
-        if self.live_display:
-            self.live_display.refresh()
+            description = result.get("description", "")
+        self.ui_events.put(("analysis_progress", analyzed, total, description))
 
     def _start_analysis_auto(self):
         """Start the analysis process automatically for current API."""
@@ -261,22 +243,8 @@ class RichImageScannerUI:
 
     def _on_analysis_complete(self):
         """Handle analysis completion for current API."""
-        current_api = self.api_providers[self.current_api_index] if self.current_api_index < len(self.api_providers) else "unknown"
-        self.analysis_progress.update(self.analysis_task_id, completed=self.analysis_progress.tasks[0].total)
-
-        # Check if we have more APIs to process
-        if self.current_api_index < len(self.api_providers) - 1:
-            self.current_api_index += 1
-            self.status_text = Text(f"✓ Analysis complete for {current_api}. Starting next API...", style="green")
-            self.analysis_started = False
-            self._start_next_api_processing()
-        else:
-            self.status_text = Text("✓ All analysis complete for all APIs!", style="green")
-            self._update_results_display("[bold green]All images analyzed with all APIs![/bold green]")
-
-        # Force refresh the display
-        if self.live_display:
-            self.live_display.refresh()
+        # Enqueue completion to be handled on the main thread
+        self.ui_events.put(("analysis_complete",))
 
     def _run_analysis_sync(self, api_provider: str):
         """Run analysis synchronously in a separate thread for a specific API."""
@@ -296,6 +264,40 @@ class RichImageScannerUI:
             )
         except Exception as e:
             self.console.print(f"[red]Analysis error for {api_provider}: {e}[/red]")
+
+    def _drain_ui_events(self) -> None:
+        """Process all queued UI events on the main thread."""
+        while True:
+            try:
+                event = self.ui_events.get_nowait()
+            except Empty:
+                break
+
+            if not event:
+                continue
+
+            kind = event[0]
+            if kind == "analysis_progress":
+                analyzed, total, description = event[1], event[2], event[3]
+                if hasattr(self, 'analysis_task_id'):
+                    self.analysis_progress.update(self.analysis_task_id, completed=analyzed, total=total)
+                if description:
+                    self._update_results_display(description)
+            elif kind == "analysis_complete":
+                if hasattr(self, 'analysis_task_id'):
+                    task = self.analysis_progress.get_task(self.analysis_task_id)
+                    self.analysis_progress.update(self.analysis_task_id, completed=task.total)
+                self.analysis_started = False
+
+                if self.current_api_index < len(self.api_providers) - 1:
+                    self.current_api_index += 1
+                    self.status_text.plain = f"✓ Analysis complete for previous API. Starting next API..."
+                    self.status_text.style = "green"
+                    self._start_next_api_processing()
+                else:
+                    self.status_text.plain = "✓ All analysis complete for all APIs!"
+                    self.status_text.style = "green"
+                    self._update_results_display("[bold green]All images analyzed with all APIs![/bold green]")
 
     def _run_ui(self):
         """Run the Rich-based UI."""
@@ -322,8 +324,8 @@ class RichImageScannerUI:
             # Start the live display with the full layout
             with Live(
                 self.layout, 
-                refresh_per_second=10, 
-                screen=False
+                refresh_per_second=4, 
+                screen=True
             ) as live:
                 self.live_display = live
                 
@@ -344,16 +346,16 @@ class RichImageScannerUI:
                 if self.scan_complete:
                     self._start_next_api_processing()
                     
-                    # Wait for cache completion
-                    while not self.cache_complete:
-                        time.sleep(0.1)
-                    
-                    # Wait for analysis to complete if it was started
-                    if hasattr(self, 'analysis_thread') and self.analysis_thread.is_alive():
-                        self.analysis_thread.join()
-                
-                # Final refresh to show completion
-                self.live_display.refresh()
+                    # Process events while cache/analysis progress
+                    while True:
+                        self._drain_ui_events()
+                        analysis_alive = hasattr(self, 'analysis_thread') and self.analysis_thread.is_alive()
+                        all_done = (not analysis_alive) and (self.current_api_index >= len(self.api_providers) - 1) and self.cache_complete and not self.analysis_started
+                        if all_done:
+                            break
+                        time.sleep(0.05)
+
+                # No need for final refresh - Live display will auto-refresh
                 
                 # Pause to show final results
                 self.console.print("\n[bold green]✓ All operations complete![/bold green]")
