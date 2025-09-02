@@ -6,6 +6,7 @@ Serves a simple web interface to browse and compare model scores.
 
 import os
 import json
+import argparse
 from flask import Flask, render_template, jsonify, send_from_directory
 from pathlib import Path
 
@@ -13,8 +14,34 @@ app = Flask(__name__,
            template_folder='../templates',
            static_folder='../static')
 
+def parse_arguments():
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(
+        description='Web UI for comparing LLM image classification results'
+    )
+    parser.add_argument(
+        '--cache-file',
+        default='.image_analysis_cache.json',
+        help='Path to the cache file (default: .image_analysis_cache.json)'
+    )
+    parser.add_argument(
+        '--host',
+        default='127.0.0.1',
+        help='Host to bind to (default: 127.0.0.1)'
+    )
+    parser.add_argument(
+        '--port',
+        type=int,
+        default=3000,
+        help='Port to bind to (default: 3000)'
+    )
+    return parser.parse_args()
+
+# Parse command line arguments
+args = parse_arguments()
+
 # Path to the cache file
-CACHE_FILE = Path(__file__).parent.parent / '.image_analysis_cache.json'
+CACHE_FILE = Path(args.cache_file)
 
 @app.route('/')
 def index():
@@ -52,16 +79,12 @@ def analyze_with_size(model, size):
 @app.route('/images/<path:filename>')
 def get_image(filename):
     """Serve images from the images directory."""
-    images_dir = Path(__file__).parent.parent / 'images'
-
-    # Remove 'images/' prefix if present in filename
-    if filename.startswith('images/'):
-        filename = filename[7:]  # Remove 'images/' prefix
-
+    images_dir = Path(__file__).parent.parent
     return send_from_directory(images_dir, filename)
 
 if __name__ == '__main__':
     print("🚀 Starting Image Classification Comparison Web UI")
-    print("📊 Visit: http://localhost:3000")
+    print(f"📊 Visit: http://{args.host}:{args.port}")
+    print(f"🔄 Using cache file: {CACHE_FILE}")
     print("🔄 Loading cache data...")
-    app.run(debug=True, host='0.0.0.0', port=3000)
+    app.run(debug=True, host=args.host, port=args.port)
