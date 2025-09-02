@@ -14,6 +14,7 @@ const imageHash = document.getElementById('image-hash');
 const imageCounter = document.getElementById('image-counter');
 const prevBtn = document.getElementById('prev-btn');
 const nextBtn = document.getElementById('next-btn');
+const reasoningContainer = document.getElementById('reasoning-container');
 
 // Filter elements
 const modelFilter = document.getElementById('model-filter');
@@ -187,6 +188,7 @@ function showCurrentImage() {
         imageError.style.display = 'block';
         imageError.textContent = 'No images match the current filter. Try adjusting your criteria.';
         clearModelOverviews();
+        clearReasoningDisplay();
         return;
     }
 
@@ -204,6 +206,9 @@ function showCurrentImage() {
 
     // Update model comparisons
     updateModelComparisons(entry);
+
+    // Update reasoning display
+    updateReasoningDisplay(entry);
 }
 
 // Load image from server
@@ -261,17 +266,32 @@ function updateModelComparisons(entry) {
     const sizes = [256, 512, 768, 1024];
 
     sizes.forEach(size => {
-        models.forEach(model => {
-            // Try size-specific key first, then fallback to legacy format
+        // Check if any model has data for this size
+        const hasDataForSize = models.some(model => {
             const modelKey = `${model}_${size}`;
             const modelData = entry.models[modelKey] || entry.models[model];
-
-            if (modelData && modelData.result) {
-                updateModelOverview(model, size, modelData.result);
-            } else {
-                clearModelOverview(model, size);
-            }
+            return modelData && modelData.result;
         });
+
+        if (hasDataForSize) {
+            // Show the overview section for this size
+            showOverviewSection(size);
+
+            // Update individual models
+            models.forEach(model => {
+                const modelKey = `${model}_${size}`;
+                const modelData = entry.models[modelKey] || entry.models[model];
+
+                if (modelData && modelData.result) {
+                    updateModelOverview(model, size, modelData.result);
+                } else {
+                    clearModelOverview(model, size);
+                }
+            });
+        } else {
+            // Hide the entire overview section for this size
+            hideOverviewSection(size);
+        }
     });
 }
 
@@ -325,6 +345,9 @@ function clearModelOverviews() {
     const sizes = [256, 512, 768, 1024];
 
     sizes.forEach(size => {
+        // Show the overview section (in case it was hidden)
+        showOverviewSection(size);
+
         models.forEach(modelName => {
             clearModelOverview(modelName, size);
         });
@@ -341,6 +364,68 @@ function clearModelOverview(modelName, size) {
     });
 }
 
+// Update reasoning display for all models and sizes
+function updateReasoningDisplay(entry) {
+    // Clear existing reasoning content
+    reasoningContainer.innerHTML = '';
+
+    const models = ['gemini', 'claude', 'openai'];
+    const sizes = [256, 512, 768, 1024];
+
+    sizes.forEach(size => {
+        models.forEach(model => {
+            // Try size-specific key first, then fallback to legacy format
+            const modelKey = `${model}_${size}`;
+            const modelData = entry.models[modelKey] || entry.models[model];
+
+            if (modelData && modelData.result && modelData.result.reasoning) {
+                const reasoningItem = document.createElement('div');
+                reasoningItem.className = 'reasoning-item';
+
+                const modelLabel = document.createElement('div');
+                modelLabel.className = 'reasoning-model';
+                modelLabel.textContent = `${model.charAt(0).toUpperCase() + model.slice(1)} ${size} reasoning:`;
+
+                const reasoningText = document.createElement('p');
+                reasoningText.className = 'reasoning-text';
+                reasoningText.textContent = modelData.result.reasoning;
+
+                reasoningItem.appendChild(modelLabel);
+                reasoningItem.appendChild(reasoningText);
+                reasoningContainer.appendChild(reasoningItem);
+            }
+        });
+    });
+
+    // If no reasoning data found, show a message
+    if (reasoningContainer.children.length === 0) {
+        const noReasoningItem = document.createElement('div');
+        noReasoningItem.className = 'reasoning-item';
+        noReasoningItem.innerHTML = '<p class="reasoning-text" style="font-style: italic; color: #7f8c8d;">No reasoning data available for this image.</p>';
+        reasoningContainer.appendChild(noReasoningItem);
+    }
+}
+
+// Clear reasoning display
+function clearReasoningDisplay() {
+    reasoningContainer.innerHTML = '<div class="reasoning-item"><p class="reasoning-text" style="font-style: italic; color: #7f8c8d;">No reasoning data available.</p></div>';
+}
+
+// Show overview section for a specific size
+function showOverviewSection(size) {
+    const overviewSection = document.querySelector(`.scores-overview:has(#gemini-${size}-overview)`);
+    if (overviewSection) {
+        overviewSection.style.display = 'block';
+    }
+}
+
+// Hide overview section for a specific size
+function hideOverviewSection(size) {
+    const overviewSection = document.querySelector(`.scores-overview:has(#gemini-${size}-overview)`);
+    if (overviewSection) {
+        overviewSection.style.display = 'none';
+    }
+}
 
 
 // Show error message
