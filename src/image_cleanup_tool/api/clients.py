@@ -7,6 +7,7 @@ all inheriting from the base APIClient class for unified interface.
 
 import os
 import base64
+import json
 from typing import Optional, Tuple, Dict
 
 import anthropic
@@ -18,6 +19,8 @@ from .backbone import APIClient
 from .prompt import PROMPT_TEMPLATE
 
 logger = get_logger(__name__)
+
+SCHEMA_DATA = json.load(open(os.path.join(os.path.dirname(__file__), '..', '..', '..', 'json_structure.json')))
 
 
 class ClaudeClient(APIClient):
@@ -46,8 +49,16 @@ class ClaudeClient(APIClient):
         return self.model
 
     def _call_api(self, image_b64: str) -> Tuple[str, Dict[str, int]]:
-        """Make API call to Claude."""
+        """Make API call to Claude with structured output."""
         try:
+            # Load the structured output schema
+            schema_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'json_structure.json')
+            with open(schema_path, 'r') as f:
+                schema_data = json.load(f)
+
+            # Extract just the schema part (not the wrapper)
+            json_schema = SCHEMA_DATA["schema"]
+
             response = self.client.messages.create(
                 model=self.model,
                 max_tokens=256,
@@ -70,8 +81,23 @@ class ClaudeClient(APIClient):
                             }
                         ]
                     }
-                ]
+                ],
+                tools=[
+                    {
+                        "name": "image_classification",
+                        "input_schema": json_schema
+                    }
+                ],
+                tool_choice={"type": "tool", "name": "image_classification"}
             )
+
+            # Extract the tool call result
+            tool_call = response.content[0]
+            if tool_call.type == "tool_use":
+                result_json = json.dumps(tool_call.input)
+            else:
+                # Fallback to text response if tool call fails
+                result_json = response.content[0].text
 
             # Extract token usage
             usage = response.usage
@@ -81,7 +107,7 @@ class ClaudeClient(APIClient):
                 'total_tokens': usage.input_tokens + usage.output_tokens
             }
 
-            return response.content[0].text, token_usage
+            return result_json, token_usage
         except Exception as err:
             logger.error("Claude API request failed: %s", err)
             raise RuntimeError(f"Claude API error: {err}")
@@ -113,7 +139,7 @@ class OpenAIClient(APIClient):
         return self.model
 
     def _call_api(self, image_b64: str) -> Tuple[str, Dict[str, int]]:
-        """Make API call to OpenAI."""
+        """Make API call to OpenAI with structured output."""
         try:
             response = self.client.chat.completions.create(
                 model=self.model,
@@ -136,18 +162,26 @@ class OpenAIClient(APIClient):
                         ],
                     }
                 ],
+                # Use model-specific token parameter (chat.completions + this model expects max_completion_tokens)
                 max_completion_tokens=256,
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": SCHEMA_DATA
+                }
             )
 
             # Extract token usage
             usage = response.usage
             token_usage = {
-                'input_tokens': usage.prompt_tokens,
-                'output_tokens': usage.completion_tokens,
-                'total_tokens': usage.total_tokens
+                'input_tokens': getattr(usage, 'prompt_tokens', None),
+                'output_tokens': getattr(usage, 'completion_tokens', None),
+                'total_tokens': getattr(usage, 'total_tokens', None)
             }
 
-            return response.choices[0].message.content, token_usage
+            # When using JSON Schema mode, content may be empty and the parsed JSON is in `.parsed`
+            message = response.choices[0].message
+
+            return message.content, token_usage
         except Exception as err:
             logger.error("OpenAI API request failed: %s", err)
             raise RuntimeError(f"OpenAI API error: {err}")
@@ -179,8 +213,36 @@ class GeminiClient(APIClient):
         return self.model
 
     def _call_api(self, image_b64: str) -> Tuple[str, Dict[str, int]]:
-        """Make API call to Gemini."""
+        """Make API call to Gemini with structured output."""
         try:
+            json_schema = SCHEMA_DATA["schema"]
+
+            # Gemini doesn't support certain JSON schema fields, so remove them
+            def remove_unsupported_fields(obj):
+                if isinstance(obj, dict):
+                    # Fields that Gemini doesn't support
+                    unsupported_fields = {
+                        'additionalProperties', 'minimum', 'maximum', 'exclusiveMinimum',
+                        'exclusiveMaximum', 'multipleOf', 'minLength', 'maxLength',
+                        'pattern', 'format', 'minItems', 'maxItems', 'uniqueItems',
+                        'minProperties', 'maxProperties', 'enum', 'const', 'allOf',
+                        'anyOf', 'oneOf', 'not', 'if', 'then', 'else', 'dependentSchemas',
+                        'dependentRequired', 'propertyNames', 'contains', 'items'
+                    }
+
+                    # Remove unsupported fields from current level
+                    obj = {k: v for k, v in obj.items() if k not in unsupported_fields}
+                    # Recursively process nested objects
+                    for k, v in obj.items():
+                        if isinstance(v, (dict, list)):
+                            obj[k] = remove_unsupported_fields(v)
+                elif isinstance(obj, list):
+                    # Process list items
+                    obj = [remove_unsupported_fields(item) for item in obj]
+                return obj
+
+            json_schema = remove_unsupported_fields(json_schema)
+
             model = genai.GenerativeModel(
                 self.model,
                 generation_config={
@@ -190,6 +252,7 @@ class GeminiClient(APIClient):
                     "candidate_count": 1,
                     "max_output_tokens": 256,
                     "response_mime_type": "application/json",
+                    "response_schema": json_schema,
                 }
             )
             response = model.generate_content([
@@ -200,19 +263,8 @@ class GeminiClient(APIClient):
                 }
             ])
 
-            # Clean up Gemini's markdown-formatted response
+            # Response is already structured JSON due to response_schema
             response_text = response.text.strip()
-
-            # Remove markdown code blocks if present
-            if response_text.startswith('```json'):
-                response_text = response_text[7:]  # Remove ```json
-            elif response_text.startswith('```'):
-                response_text = response_text[3:]  # Remove ```
-
-            if response_text.endswith('```'):
-                response_text = response_text[:-3]  # Remove ```
-
-            response_text = response_text.strip()
 
             # Gemini doesn't provide token usage, so we'll estimate based on text length
             # Rough estimation: ~4 characters per token for English text

@@ -66,7 +66,10 @@ class APIClient(ABC):
         """
         try:
             response_text, token_usage = self._call_api(image_b64)
-            parsed_response = json.loads(response_text)
+            if isinstance(response_text, str):
+                parsed_response = json.loads(response_text)
+            else:
+                parsed_response = response_text
             return parsed_response, token_usage
         except json.JSONDecodeError:
             logger.error("Failed to parse JSON response: %s", response_text)

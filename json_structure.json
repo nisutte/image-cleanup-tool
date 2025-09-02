@@ -1,0 +1,78 @@
+{
+    "name": "image_classification_response",
+    "strict": true,
+    "schema": {
+      "type": "object",
+      "properties": {
+        "category_scores": {
+          "type": "object",
+          "properties": {
+            "blurry": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "meme": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "screenshot": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "document": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "personal": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "non_personal": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "contains_faces": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            }
+          },
+          "required": ["blurry", "meme", "screenshot", "document", "personal", "non_personal", "contains_faces"],
+          "additionalProperties": false
+        },
+        "final_classification": {
+          "type": "object",
+          "properties": {
+            "keep": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "discard": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "unsure": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            }
+          },
+          "required": ["keep", "discard", "unsure"],
+          "additionalProperties": false
+        },
+        "reasoning": {
+          "type": "string"
+        }
+      },
+      "required": ["category_scores", "final_classification", "reasoning"],
+      "additionalProperties": false
+    }
+  }
