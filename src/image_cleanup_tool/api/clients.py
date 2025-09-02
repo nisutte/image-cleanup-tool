@@ -50,7 +50,7 @@ class ClaudeClient(APIClient):
         try:
             response = self.client.messages.create(
                 model=self.model,
-                max_tokens=400,
+                max_tokens=256,
                 temperature=0.1,
                 messages=[
                     {
@@ -117,6 +117,7 @@ class OpenAIClient(APIClient):
         try:
             response = self.client.chat.completions.create(
                 model=self.model,
+                reasoning_effort="minimal",  # ↓ Reduce hidden reasoning tokens
                 messages=[
                     {
                         "role": "user",
@@ -135,7 +136,7 @@ class OpenAIClient(APIClient):
                         ],
                     }
                 ],
-                max_completion_tokens=2000,
+                max_completion_tokens=256,
             )
 
             # Extract token usage
@@ -180,8 +181,17 @@ class GeminiClient(APIClient):
     def _call_api(self, image_b64: str) -> Tuple[str, Dict[str, int]]:
         """Make API call to Gemini."""
         try:
-            model = genai.GenerativeModel(self.model)
-
+            model = genai.GenerativeModel(
+                self.model,
+                generation_config={
+                    "temperature": 0.0,
+                    "top_p": 0.1,
+                    "top_k": 1,
+                    "candidate_count": 1,
+                    "max_output_tokens": 256,
+                    "response_mime_type": "application/json",
+                }
+            )
             response = model.generate_content([
                 PROMPT_TEMPLATE,
                 {

@@ -92,7 +92,7 @@ def cli_run(root: Path, api_providers: list[str], size: int):
                 result, token_usage = api_client.analyze_image(b64)
                 print(f"Result: {result.get('final_classification')}")
                 if token_usage:
-                    print(f"Tokens used: {token_usage.get('total_tokens', 'N/A')}")
+                    print(f"Input and Output Tokens used: {token_usage.get('input_tokens', 'N/A')} and {token_usage.get('output_tokens', 'N/A')}")
                 engine.cache.set(path, result, api_provider, size)
 
 
