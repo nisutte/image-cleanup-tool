@@ -130,10 +130,21 @@ function matchesFilter(entry, filter) {
             return sizes.some(size => {
                 const modelKey = `${modelName}_${size}`;
                 const modelData = entry.models[modelKey] || entry.models[modelName]; // Fallback to legacy format
-                if (!modelData || !modelData.result || !modelData.result.final_classification) {
+                if (!modelData || !modelData.result) {
                     return false;
                 }
-                return modelData.result.final_classification[classification] >= minPercentage;
+
+                // NEW SCHEMA: confidences are 0..1; convert to 0..100 for comparison
+                if (modelData.result[`confidence_${classification}`] !== undefined) {
+                    return modelData.result[`confidence_${classification}`] * 100 >= minPercentage;
+                }
+
+                // Legacy fallback
+                if (modelData.result.final_classification) {
+                    return modelData.result.final_classification[classification] >= minPercentage;
+                }
+
+                return false;
             });
         });
     } else {
@@ -141,10 +152,21 @@ function matchesFilter(entry, filter) {
         return sizes.some(size => {
             const modelKey = `${model}_${size}`;
             const modelData = entry.models[modelKey] || entry.models[model]; // Fallback to legacy format
-            if (!modelData || !modelData.result || !modelData.result.final_classification) {
+            if (!modelData || !modelData.result) {
                 return false;
             }
-            return modelData.result.final_classification[classification] >= minPercentage;
+
+            // New schema
+            if (modelData.result[`confidence_${classification}`] !== undefined) {
+                return modelData.result[`confidence_${classification}`] * 100 >= minPercentage;
+            }
+
+            // Legacy fallback
+            if (modelData.result.final_classification) {
+                return modelData.result.final_classification[classification] >= minPercentage;
+            }
+
+            return false;
         });
     }
 }
@@ -299,14 +321,21 @@ function updateModelComparisons(entry) {
 function updateModelOverview(modelName, size, result) {
     const overview = document.getElementById(`${modelName}-${size}-overview`);
 
+    // New schema: confidences 0..1 → percentage
+    if (result.confidence_keep !== undefined) {
+        updateScoreBar(overview, 'keep', result.confidence_keep * 100);
+    }
+    if (result.confidence_delete !== undefined) {
+        updateScoreBar(overview, 'discard', result.confidence_delete * 100);
+    }
+    if (result.confidence_unsure !== undefined) {
+        updateScoreBar(overview, 'unsure', result.confidence_unsure * 100);
+    }
+
+    // Legacy fallback
     if (result.final_classification) {
-        // Update keep score bar
         updateScoreBar(overview, 'keep', result.final_classification.keep);
-
-        // Update discard score bar
         updateScoreBar(overview, 'discard', result.final_classification.discard);
-
-        // Update unsure score bar
         updateScoreBar(overview, 'unsure', result.final_classification.unsure);
     }
 }
@@ -333,7 +362,7 @@ function updateScoreBar(overview, type, score) {
     const text = targetContainer.querySelector('.score-text');
 
     if (fill && text) {
-        fill.style.width = `${score}%`;
+        fill.style.width = `${Math.round(score)}%`;
         fill.setAttribute('data-score', score);
         text.textContent = `${score}%`;
     }
@@ -378,7 +407,9 @@ function updateReasoningDisplay(entry) {
             const modelKey = `${model}_${size}`;
             const modelData = entry.models[modelKey] || entry.models[model];
 
-            if (modelData && modelData.result && modelData.result.reasoning) {
+            const reasonText = modelData && modelData.result ? (modelData.result.reason ?? modelData.result.reasoning) : null;
+
+            if (reasonText) {
                 const reasoningItem = document.createElement('div');
                 reasoningItem.className = 'reasoning-item';
 
@@ -388,7 +419,7 @@ function updateReasoningDisplay(entry) {
 
                 const reasoningText = document.createElement('p');
                 reasoningText.className = 'reasoning-text';
-                reasoningText.textContent = modelData.result.reasoning;
+                reasoningText.textContent = reasonText;
 
                 reasoningItem.appendChild(modelLabel);
                 reasoningItem.appendChild(reasoningText);

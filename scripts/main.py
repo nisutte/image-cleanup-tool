@@ -90,7 +90,7 @@ def cli_run(root: Path, api_providers: list[str], size: int):
                 print(f"Analyzing {path} with {api_provider}...")
                 b64 = ImageProcessor.load_and_encode_image(str(path), size)
                 result, token_usage = api_client.analyze_image(b64)
-                print(f"Result: {result.get('final_classification')}")
+                print(f"Result: {result.get('decision')}")
                 if token_usage:
                     print(f"Input and Output Tokens used: {token_usage.get('input_tokens', 'N/A')} and {token_usage.get('output_tokens', 'N/A')}")
                 engine.cache.set(path, result, api_provider, size)

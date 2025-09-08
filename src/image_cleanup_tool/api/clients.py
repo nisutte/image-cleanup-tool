@@ -20,7 +20,7 @@ from .prompt import PROMPT_TEMPLATE
 
 logger = get_logger(__name__)
 
-SCHEMA_DATA = json.load(open(os.path.join(os.path.dirname(__file__), '..', '..', '..', 'json_structure.json')))
+SCHEMA_DATA = json.load(open(os.path.join(os.path.dirname(__file__), 'json_structure.json')))
 
 
 class ClaudeClient(APIClient):
@@ -51,12 +51,6 @@ class ClaudeClient(APIClient):
     def _call_api(self, image_b64: str) -> Tuple[str, Dict[str, int]]:
         """Make API call to Claude with structured output."""
         try:
-            # Load the structured output schema
-            schema_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'json_structure.json')
-            with open(schema_path, 'r') as f:
-                schema_data = json.load(f)
-
-            # Extract just the schema part (not the wrapper)
             json_schema = SCHEMA_DATA["schema"]
 
             response = self.client.messages.create(
@@ -146,6 +140,15 @@ class OpenAIClient(APIClient):
                 reasoning_effort="minimal",  # ↓ Reduce hidden reasoning tokens
                 messages=[
                     {
+                        "role": "system",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": ""
+                            }
+                        ]
+                    },
+                    {
                         "role": "user",
                         "content": [
                             {
@@ -159,7 +162,7 @@ class OpenAIClient(APIClient):
                                     "detail": "low"
                                 }
                             }
-                        ],
+                        ]
                     }
                 ],
                 # Use model-specific token parameter (chat.completions + this model expects max_completion_tokens)
@@ -198,13 +201,14 @@ class GeminiClient(APIClient):
             model: Model name to use (default: gemini-1.5-flash)
         """
         self.model = model
+        print("api key is", api_key)
         super().__init__(api_key)
 
     def _validate_api_key(self) -> None:
         """Validate Google API key."""
-        key = self.api_key or os.getenv("GEMINI_API_KEY")
+        key = self.api_key or os.getenv("GOOGLE_API_KEY")
         if not key:
-            raise ValueError("GEMINI_API_KEY environment variable not set")
+            raise ValueError("GOOGLE_API_KEY environment variable not set")
         self.api_key = key
         genai.configure(api_key=key)
 

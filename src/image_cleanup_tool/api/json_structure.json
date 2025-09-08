@@ -1,0 +1,38 @@
+{
+    "name": "image_classification_response",
+    "strict": true,
+    "schema": {
+        "type": "object",
+        "properties": {
+            "decision": {
+                "type": "string",
+                "enum": ["keep", "unsure", "delete"]
+            },
+            "confidence_keep": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+            },
+            "confidence_unsure": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+            },
+            "confidence_delete": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+            },
+            "primary_category": {
+                "type": "string",
+                "enum": ["people", "scenery", "document", "screenshot", "meme", "pet", "food", "vehicle", "object", "unknown"]
+            },
+            "reason": {
+                "type": "string",
+                "maxLength": 100
+            }
+        },
+        "required": ["decision", "confidence_keep", "confidence_unsure", "confidence_delete", "primary_category", "reason"],
+        "additionalProperties": false
+    }
+}
