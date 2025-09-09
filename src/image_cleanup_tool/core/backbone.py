@@ -110,7 +110,6 @@ class ImageScanEngine:
         Check which images are already in the cache.
         Calls on_cache_progress after each image and on_cache_complete at end.
         """
-        scanned = 0
         known = 0
         self.uncached_images = []
         for path in self.image_paths:
@@ -118,12 +117,10 @@ class ImageScanEngine:
                 known += 1
             else:
                 self.uncached_images.append(path)
-            scanned += 1
-            # Update progress more frequently for better UI responsiveness
-            if self.on_cache_progress and (scanned % 1 == 0 or scanned == len(self.image_paths)):
-                self.on_cache_progress(scanned, known)
+            if self.on_cache_progress:
+                self.on_cache_progress(known)
         if self.on_cache_complete:
-            self.on_cache_complete(known, len(self.image_paths))
+            self.on_cache_complete(known)
 
 
 
@@ -159,8 +156,6 @@ class ImageScanEngine:
             pool = AsyncWorkerPool(
                 image_paths=self.uncached_images,
                 api_name=api_provider,
-                max_concurrent=max_concurrent,
-                requests_per_minute=requests_per_minute,
                 size=size
             )
 
@@ -191,10 +186,10 @@ class ImageScanEngine:
                         if not isinstance(latest_result, Exception):
                             self.cache.set(latest_path, latest_result, api_provider, size)
 
-                            # Update cache progress since we just cached a new result
-                            if self.on_cache_progress:
-                                cached_count = sum(1 for path in self.image_paths if self.cache.get(path, api_provider, size) is not None)
-                                self.on_cache_progress(cached_count, self.total_files)
+                        # Update cache progress since we just cached a new result
+                        if self.on_cache_progress:
+                            cached_count = sum(1 for path in self.image_paths if self.cache.get(path, api_provider, size) is not None)
+                            self.on_cache_progress(cached_count)
 
                         # Call progress callback
                         if self.on_analysis_progress:

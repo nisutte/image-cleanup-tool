@@ -36,7 +36,6 @@ class RichImageScannerUI:
         self.console = Console()
         self.analysis_results: List[str] = []
         self.scan_complete = False
-        self.cache_complete = False
         self.analysis_started = False
         self.live_display = None
         self.layout = None
@@ -150,20 +149,17 @@ class RichImageScannerUI:
         self.scan_progress.update(self.scan_task_id, completed=self.engine.total_files)
         self.status_text.plain = "✓ File scanning complete!"
         self.status_text.style = "green"
-        # Live display will auto-refresh, no need for manual refresh
 
-    def _on_cache_progress(self, scanned: int, known: int):
+    def _on_cache_progress(self, known: int):
         """Handle cache progress updates."""
-        if not self.cache_complete:
-            total = len(self.engine.image_paths)
-            self.cache_progress.update(self.cache_task_id, completed=known, total=total)
-            # Live display will auto-refresh, no need for manual refresh
+        total = len(self.engine.image_paths)
+        self.cache_progress.update(self.cache_task_id, completed=known, total=total)
 
-    def _on_cache_complete(self, known: int, total: int):
+    def _on_cache_complete(self, known: int):
         """Handle cache completion for current API."""
         if hasattr(self, 'cache_task_id'):
+            total = len(self.engine.image_paths)
             self.cache_progress.update(self.cache_task_id, completed=known, total=total)
-        self.cache_complete = True
 
 
     def _on_analysis_progress(self, path: Path, analyzed: int, total: int, result: Any):
@@ -171,41 +167,31 @@ class RichImageScannerUI:
         if not self.analysis_started:
             return
 
-        # Update progress directly
         if hasattr(self, 'analysis_task_id'):
             self.analysis_progress.update(self.analysis_task_id, completed=analyzed, total=total)
-        
-        # Update results display with image analysis
-        # Always show some result, even if it's an error or empty
-        display_text = None
-        
+
+        display_text = ""
         if isinstance(result, Exception):
-            display_text = f"{path.name}: Error - {str(result)[:50]}..."
-        elif result:
-            description = None
+            display_text = f"Error - {str(result)[:50]}..."
+        elif isinstance(result, dict):
+            # Extract decision and confidence
+            decision = result.get("decision", "unknown")
+            confidences = {
+                "keep": result.get("confidence_keep", 0),
+                "unsure": result.get("confidence_unsure", 0),
+                "delete": result.get("confidence_delete", 0)
+            }
+            confidence = confidences.get(decision, 0)
             
-            # Extract description from different possible result formats
-            if isinstance(result, dict):
-                description = result.get("description", result.get("text", ""))
-            elif isinstance(result, str):
-                description = result
-            elif hasattr(result, 'description'):
-                description = result.description
-            elif hasattr(result, 'text'):
-                description = result.text
-            
-            if description:
-                # Truncate long descriptions for display
-                if len(description) > 100:
-                    description = description[:100] + "..."
-                display_text = f"{path.name}: {description}"
-            else:
-                display_text = f"{path.name}: Analysis completed (no description)"
+            display_text = f"[{decision.upper()} {confidence*100:.0f}%] "
+            reason = result.get("reason", "")
+            if len(reason) > 80:
+                reason = reason[:80] + "..."
+            display_text += reason or "No reason provided"
         else:
-            display_text = f"{path.name}: No result returned"
+            display_text = str(result)[:100] or "Analysis completed"
         
-        if display_text:
-            self._update_results_display(display_text)
+        self._update_results_display(display_text)
 
     def _on_analysis_complete(self):
         """Handle analysis completion for current API."""
@@ -221,7 +207,6 @@ class RichImageScannerUI:
             # Start cache check for this API
             self.status_text.plain = f"Starting cache check for {api_provider}..."
             self.status_text.style = "blue"
-            self.cache_complete = False
 
             # Show cache progress bar
             self.cache_progress.visible = True
@@ -253,8 +238,6 @@ class RichImageScannerUI:
         try:
             # Run the async analysis for this specific API
             await self.engine.run_analysis_async(
-                max_concurrent=5,
-                requests_per_minute=30,
                 size=self.size,
                 api_providers=[api_provider]
             )
@@ -316,10 +299,8 @@ class RichImageScannerUI:
                 if self.scan_complete:
                     await self._process_all_apis()
 
-                # Pause to show final results
+                # Show completion message and exit
                 self.console.print("\n[bold green]✓ All operations complete![/bold green]")
-                self.console.print("[dim]Press Enter to exit...[/dim]")
-                input()
                 
         except Exception as e:
             self.console.print(f"[red]Error: {e}[/red]")
