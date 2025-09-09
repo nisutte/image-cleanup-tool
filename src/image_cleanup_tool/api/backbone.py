@@ -18,14 +18,18 @@ logger = get_logger(__name__)
 class APIClient(ABC):
     """Abstract base class for API clients."""
 
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: Optional[str] = None, max_concurrent: int = 10, rpm: int = 60):
         """Initialize the API client.
 
         Args:
             api_key: API key for the service. If None, will try to get from environment.
+            max_concurrent: Maximum number of concurrent requests.
+            rpm: Requests per minute.
         """
         self.api_key = api_key
         self._validate_api_key()
+        self.max_concurrent = max_concurrent
+        self.rpm = rpm
 
     @abstractmethod
     def _validate_api_key(self) -> None:

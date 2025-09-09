@@ -35,23 +35,23 @@ class AsyncWorkerPool:
         self,
         image_paths: List[Path],
         api_name: str = "openai",
-        max_concurrent: int = 10,
-        requests_per_minute: int = 60,
         size: int = 512,
         timeout: float = 30.0,
     ) -> None:
         self.image_paths = list(image_paths)
         self.api_name = api_name
-        self.max_concurrent = max_concurrent
-        self.requests_per_minute = requests_per_minute
         self.size = size
         self.timeout = timeout
 
         # Initialize API client
         self.api_client = get_client(api_name)
 
+        # Get concurrency and rate limiting from API client
+        self.max_concurrent = self.api_client.max_concurrent
+        self.requests_per_minute = self.api_client.requests_per_minute
+
         # Rate limiting: calculate delay between requests
-        self.request_delay = 60.0 / requests_per_minute if requests_per_minute > 0 else 0
+        self.request_delay = 60.0 / self.requests_per_minute if self.requests_per_minute > 0 else 0
 
         # Results storage
         self.results: Dict[Path, AnalysisResult] = {}
@@ -59,7 +59,7 @@ class AsyncWorkerPool:
         self.total_count = len(image_paths)
 
         # Semaphore for limiting concurrent requests
-        self.semaphore = asyncio.Semaphore(max_concurrent)
+        self.semaphore = asyncio.Semaphore(self.max_concurrent)
 
         # Rate limiting semaphore
         self.rate_limit_semaphore = asyncio.Semaphore(1)
