@@ -57,6 +57,9 @@ async function loadCacheData() {
 
     // Initialize filtered entries with all images
     filteredEntries = [...imageEntries];
+
+    // Calculate and display aggregated statistics
+    updateAggregatedStatistics();
 }
 
 // Set up event listeners
@@ -136,12 +139,19 @@ function matchesFilter(entry, filter) {
 
                 // NEW SCHEMA: confidences are 0..1; convert to 0..100 for comparison
                 if (modelData.result[`confidence_${classification}`] !== undefined) {
-                    return modelData.result[`confidence_${classification}`] * 100 >= minPercentage;
+                    const score = modelData.result[`confidence_${classification}`] || 0;
+                    return score * 100 >= minPercentage;
                 }
 
                 // Legacy fallback
                 if (modelData.result.final_classification) {
-                    return modelData.result.final_classification[classification] >= minPercentage;
+                    // Handle mapping from 'delete' to 'discard' in legacy format
+                    let fieldName = classification;
+                    if (classification === 'delete') {
+                        fieldName = 'discard'; // Map 'delete' to 'discard' for legacy compatibility
+                    }
+                    const score = modelData.result.final_classification[fieldName] || 0;
+                    return score >= minPercentage;
                 }
 
                 return false;
@@ -158,12 +168,19 @@ function matchesFilter(entry, filter) {
 
             // New schema
             if (modelData.result[`confidence_${classification}`] !== undefined) {
-                return modelData.result[`confidence_${classification}`] * 100 >= minPercentage;
+                const score = modelData.result[`confidence_${classification}`] || 0;
+                return score * 100 >= minPercentage;
             }
 
             // Legacy fallback
             if (modelData.result.final_classification) {
-                return modelData.result.final_classification[classification] >= minPercentage;
+                // Handle mapping from 'delete' to 'discard' in legacy format
+                let fieldName = classification;
+                if (classification === 'delete') {
+                    fieldName = 'discard'; // Map 'delete' to 'discard' for legacy compatibility
+                }
+                const score = modelData.result.final_classification[fieldName] || 0;
+                return score >= minPercentage;
             }
 
             return false;
@@ -467,6 +484,115 @@ function showError(message) {
     errorDiv.textContent = message;
 
     document.querySelector('.container').prepend(errorDiv);
+}
+
+// Calculate and display aggregated statistics across all cache images
+function updateAggregatedStatistics() {
+    if (!cacheData || !cacheData.entries) {
+        return;
+    }
+
+    const models = ['gemini', 'claude', 'openai'];
+    const sizes = [256, 512, 768, 1024];
+    const stats = {};
+
+    // Initialize stats for each model
+    models.forEach(model => {
+        stats[model] = {
+            keep: { count: 0, total: 0 },
+            unsure: { count: 0, total: 0 },
+            delete: { count: 0, total: 0 }
+        };
+    });
+
+    // Process each image entry
+    Object.entries(cacheData.entries).forEach(([hash, entry]) => {
+        if (!entry.models) return;
+
+        // Process each model/size combination
+        models.forEach(model => {
+            sizes.forEach(size => {
+                const modelKey = `${model}_${size}`;
+                const modelData = entry.models[modelKey] || entry.models[model];
+
+                if (modelData && modelData.result) {
+                    const result = modelData.result;
+                    let keepScore = 0, unsureScore = 0, deleteScore = 0;
+
+                    // Extract scores from result
+                    if (result.final_classification) {
+                        // Legacy format
+                        keepScore = result.final_classification.keep || 0;
+                        deleteScore = result.final_classification.discard || result.final_classification.delete || 0;
+                        unsureScore = result.final_classification.unsure || 0;
+                    } else if (result.confidence_keep !== undefined) {
+                        // New format (0..1 scale)
+                        keepScore = (result.confidence_keep || 0) * 100;
+                        deleteScore = (result.confidence_delete || result.confidence_discard || 0) * 100;
+                        unsureScore = (result.confidence_unsure || 0) * 100;
+                    }
+
+                    // Find the most probable classification
+                    const scores = {
+                        keep: keepScore,
+                        unsure: unsureScore,
+                        delete: deleteScore
+                    };
+
+                    const maxClassification = Object.keys(scores).reduce((a, b) =>
+                        scores[a] > scores[b] ? a : b
+                    );
+
+                    // Only count if there's a clear winner (score > 0)
+                    const maxScore = scores[maxClassification];
+                    if (maxScore > 0) {
+                        stats[model][maxClassification].count++;
+                    }
+
+                    // Count total classifications for this model
+                    stats[model][maxClassification].total++;
+                }
+            });
+        });
+    });
+
+    // Update display for each model
+    models.forEach(model => {
+        const modelStats = stats[model];
+        const totalClassifications = modelStats.keep.total + modelStats.unsure.total + modelStats.delete.total;
+
+        if (totalClassifications > 0) {
+            // Calculate percentages
+            const keepPercent = (modelStats.keep.count / totalClassifications * 100).toFixed(1);
+            const unsurePercent = (modelStats.unsure.count / totalClassifications * 100).toFixed(1);
+            const deletePercent = (modelStats.delete.count / totalClassifications * 100).toFixed(1);
+
+            // Update percentages
+            document.getElementById(`${model}-keep-percentage`).textContent = `${keepPercent}%`;
+            document.getElementById(`${model}-unsure-percentage`).textContent = `${unsurePercent}%`;
+            document.getElementById(`${model}-delete-percentage`).textContent = `${deletePercent}%`;
+
+            // Update counts
+            document.getElementById(`${model}-keep-count`).textContent = `(${modelStats.keep.count})`;
+            document.getElementById(`${model}-unsure-count`).textContent = `(${modelStats.unsure.count})`;
+            document.getElementById(`${model}-delete-count`).textContent = `(${modelStats.delete.count})`;
+        } else {
+            // No data available
+            ['keep', 'unsure', 'delete'].forEach(type => {
+                document.getElementById(`${model}-${type}-percentage`).textContent = '0%';
+                document.getElementById(`${model}-${type}-count`).textContent = '(0)';
+            });
+        }
+    });
+
+    // Update summary text
+    const totalImages = Object.keys(cacheData.entries).length;
+    const totalClassifications = models.reduce((sum, model) =>
+        sum + stats[model].keep.total + stats[model].unsure.total + stats[model].delete.total, 0
+    );
+
+    document.getElementById('stats-summary-text').textContent =
+        `Based on ${totalClassifications} total classifications across ${totalImages} images and all sizes`;
 }
 
 // Initialize when DOM is loaded

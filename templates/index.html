@@ -37,7 +37,7 @@
                     <label for="classification-filter">Classification:</label>
                     <select id="classification-filter">
                         <option value="keep">Keep</option>
-                        <option value="discard">Discard</option>
+                        <option value="delete">Delete</option>
                         <option value="unsure">Unsure</option>
                     </select>
                 </div>
@@ -432,6 +432,81 @@
                                 </div>
                             </div>
                         </div>
+                    </div>
+                </div>
+
+                <!-- Aggregated Statistics Section -->
+                <div class="aggregated-stats-section">
+                    <h2>📊 Overall Model Performance</h2>
+                    <div class="aggregated-stats-grid">
+                        <!-- Gemini Aggregated Stats -->
+                        <div class="aggregated-model-stats" id="gemini-aggregated-stats">
+                            <h3>🤖 Gemini</h3>
+                            <div class="aggregated-scores">
+                                <div class="aggregated-score-item">
+                                    <span class="score-label">Keep</span>
+                                    <span class="score-percentage" id="gemini-keep-percentage">0%</span>
+                                    <span class="score-count" id="gemini-keep-count">(0)</span>
+                                </div>
+                                <div class="aggregated-score-item">
+                                    <span class="score-label">Unsure</span>
+                                    <span class="score-percentage" id="gemini-unsure-percentage">0%</span>
+                                    <span class="score-count" id="gemini-unsure-count">(0)</span>
+                                </div>
+                                <div class="aggregated-score-item">
+                                    <span class="score-label">Delete</span>
+                                    <span class="score-percentage" id="gemini-delete-percentage">0%</span>
+                                    <span class="score-count" id="gemini-delete-count">(0)</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Claude Aggregated Stats -->
+                        <div class="aggregated-model-stats" id="claude-aggregated-stats">
+                            <h3>🧠 Claude</h3>
+                            <div class="aggregated-scores">
+                                <div class="aggregated-score-item">
+                                    <span class="score-label">Keep</span>
+                                    <span class="score-percentage" id="claude-keep-percentage">0%</span>
+                                    <span class="score-count" id="claude-keep-count">(0)</span>
+                                </div>
+                                <div class="aggregated-score-item">
+                                    <span class="score-label">Unsure</span>
+                                    <span class="score-percentage" id="claude-unsure-percentage">0%</span>
+                                    <span class="score-count" id="claude-unsure-count">(0)</span>
+                                </div>
+                                <div class="aggregated-score-item">
+                                    <span class="score-label">Delete</span>
+                                    <span class="score-percentage" id="claude-delete-percentage">0%</span>
+                                    <span class="score-count" id="claude-delete-count">(0)</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- OpenAI Aggregated Stats -->
+                        <div class="aggregated-model-stats" id="openai-aggregated-stats">
+                            <h3>🎯 OpenAI</h3>
+                            <div class="aggregated-scores">
+                                <div class="aggregated-score-item">
+                                    <span class="score-label">Keep</span>
+                                    <span class="score-percentage" id="openai-keep-percentage">0%</span>
+                                    <span class="score-count" id="openai-keep-count">(0)</span>
+                                </div>
+                                <div class="aggregated-score-item">
+                                    <span class="score-label">Unsure</span>
+                                    <span class="score-percentage" id="openai-unsure-percentage">0%</span>
+                                    <span class="score-count" id="openai-unsure-count">(0)</span>
+                                </div>
+                                <div class="aggregated-score-item">
+                                    <span class="score-label">Delete</span>
+                                    <span class="score-percentage" id="openai-delete-percentage">0%</span>
+                                    <span class="score-count" id="openai-delete-count">(0)</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="stats-summary">
+                        <p id="stats-summary-text">Based on 0 total classifications across all images and sizes</p>
                     </div>
                 </div>
 

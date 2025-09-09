@@ -70,19 +70,19 @@ def get_sizes():
 def analyze_with_size(model, size):
     """API endpoint to trigger analysis for a specific model and size."""
     try:
-        # This would need to be implemented with proper async handling
-        # For now, return a placeholder response
         return jsonify({"status": "not_implemented", "message": f"Analysis for {model} with size {size} not yet implemented"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@app.route('/images/<path:filename>')
-def get_image(filename):
-    """Serve images from the images directory."""
-    images_dir = Path(__file__).parent.parent
-    return send_from_directory(images_dir, filename)
+@app.route('/images/<path:subpath>')
+def get_image(subpath):
+    """Serve images using the full path from the cache."""
+    try:
+        full_path = Path('/' + subpath)
+        return send_from_directory(full_path.parent, full_path.name)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
-if __name__ == '__main__':
     print("🚀 Starting Image Classification Comparison Web UI")
     print(f"📊 Visit: http://{args.host}:{args.port}")
     print(f"🔄 Using cache file: {CACHE_FILE}")

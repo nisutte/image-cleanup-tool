@@ -259,6 +259,93 @@ h1 {
     border-bottom: 2px solid #ecf0f1;
 }
 
+/* Aggregated statistics section */
+.aggregated-stats-section {
+    flex-shrink: 0;
+    margin-bottom: 20px;
+    padding-bottom: 15px;
+    border-bottom: 2px solid #ecf0f1;
+}
+
+.aggregated-stats-section h2 {
+    color: #2c3e50;
+    margin-bottom: 15px;
+    font-size: 1.1rem;
+    text-align: center;
+}
+
+.aggregated-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 15px;
+    margin-bottom: 15px;
+}
+
+.aggregated-model-stats {
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 15px;
+    border: 1px solid #ecf0f1;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.aggregated-model-stats h3 {
+    color: #2c3e50;
+    margin-bottom: 12px;
+    font-size: 1rem;
+    text-align: center;
+    font-weight: 600;
+}
+
+.aggregated-scores {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+}
+
+.aggregated-score-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    background: white;
+    border-radius: 6px;
+    border: 1px solid #e9ecef;
+    font-size: 0.9rem;
+}
+
+.aggregated-score-item .score-label {
+    font-weight: 600;
+    color: #2c3e50;
+    flex: 1;
+}
+
+.aggregated-score-item .score-percentage {
+    font-weight: 700;
+    font-size: 1rem;
+    margin-right: 8px;
+}
+
+.aggregated-score-item .score-count {
+    color: #6c757d;
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+
+.stats-summary {
+    text-align: center;
+    margin-top: 15px;
+    padding-top: 15px;
+    border-top: 1px solid #e9ecef;
+}
+
+.stats-summary p {
+    color: #6c757d;
+    font-size: 0.9rem;
+    font-style: italic;
+    margin: 0;
+}
+
 .scores-overview h2 {
     color: #2c3e50;
     margin-bottom: 8px;
