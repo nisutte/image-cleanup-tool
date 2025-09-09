@@ -108,7 +108,10 @@ class ClaudeClient(APIClient):
 
 
 class OpenAIClient(APIClient):
-    """Client for OpenAI's GPT API."""
+    """
+    Client for OpenAI's GPT API.
+    Estimated cost is around $0.85 per 10'000 images.
+    """
 
     def __init__(self, api_key: Optional[str] = None, model: str = "gpt-5-nano"):
         """Initialize OpenAI client.
@@ -144,7 +147,7 @@ class OpenAIClient(APIClient):
                         "content": [
                             {
                                 "type": "text",
-                                "text": ""
+                                "text": PROMPT_TEMPLATE.split(".")[0]
                             }
                         ]
                     },
@@ -153,7 +156,7 @@ class OpenAIClient(APIClient):
                         "content": [
                             {
                                 "type": "text",
-                                "text": PROMPT_TEMPLATE
+                                "text": PROMPT_TEMPLATE.split(".")[1]
                             },
                             {
                                 "type": "image_url",
@@ -191,9 +194,12 @@ class OpenAIClient(APIClient):
 
 
 class GeminiClient(APIClient):
-    """Client for Google's Gemini API."""
+    """
+    Client for Google's Gemini API.
+    Estimaged cost is around $0.525 per 10'000 images. (half for the 8 bit model)
+    """
 
-    def __init__(self, api_key: Optional[str] = None, model: str = "gemini-1.5-flash"):
+    def __init__(self, api_key: Optional[str] = None, model: str = "gemini-1.5-flash-8b"):
         """Initialize Gemini client.
 
         Args:
@@ -250,9 +256,8 @@ class GeminiClient(APIClient):
             model = genai.GenerativeModel(
                 self.model,
                 generation_config={
-                    "temperature": 0.0,
-                    "top_p": 0.1,
-                    "top_k": 1,
+                    "temperature": 0.1,
+                    "top_p": 0.9,
                     "candidate_count": 1,
                     "max_output_tokens": 256,
                     "response_mime_type": "application/json",
