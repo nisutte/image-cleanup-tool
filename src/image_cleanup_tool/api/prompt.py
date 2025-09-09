@@ -5,21 +5,6 @@ from typing import Literal
 Prompt for image analysis.
 """
 
-class ImageClassificationResponse(BaseModel):
-    decision: Literal["keep", "unsure", "delete"]
-    confidence_keep: float
-    confidence_unsure: float
-    confidence_delete: float
-    primary_category: Literal["people", "scenery", "document", "screenshot", "meme", "pet", "food", "vehicle", "object", "unknown"]
-    reason: str
-
-
-class JsonSchema(BaseModel):
-    name: str
-    strict: bool
-    schema: ImageClassificationResponse
-
-
 PROMPT_TEMPLATE_V1 = """
 You help sort personal photos. For each image, analyze it and return a structured JSON response.
 

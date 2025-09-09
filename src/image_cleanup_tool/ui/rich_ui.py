@@ -7,11 +7,7 @@ display progress bars, and show analysis results in real-time.
 """
 
 import asyncio
-
-
 import time
-import threading
-from queue import Queue, Empty
 from pathlib import Path
 from collections import Counter
 from typing import Any, List
@@ -22,7 +18,6 @@ from rich.panel import Panel
 from rich.layout import Layout
 from rich.live import Live
 from rich.text import Text
-from rich.prompt import Prompt
 from rich.table import Table
 
 from ..core.backbone import ImageScanEngine
@@ -47,8 +42,6 @@ class RichImageScannerUI:
         self.layout = None
         self.current_api_index = 0
         self.status_text = Text(f"Initializing with {size}x{size} images and {len(self.api_providers)} API(s): {', '.join(self.api_providers)}", style="blue")
-        # Thread-safe UI event queue for updates from background threads
-        self.ui_events: Queue = Queue()
 
     def _create_layout(self) -> Layout:
         """Create the main layout structure."""
@@ -168,138 +161,115 @@ class RichImageScannerUI:
 
     def _on_cache_complete(self, known: int, total: int):
         """Handle cache completion for current API."""
-        current_api = self.api_providers[self.current_api_index] if self.current_api_index < len(self.api_providers) else "unknown"
-        self.cache_progress.update(self.cache_task_id, completed=known, total=total)
-
-        uncached = total - known
-        self.status_text.plain = f"✓ Cache check complete for {current_api}: {known}/{total} known"
-        self.status_text.style = "green"
+        if hasattr(self, 'cache_task_id'):
+            self.cache_progress.update(self.cache_task_id, completed=known, total=total)
         self.cache_complete = True
 
-        if uncached > 0:
-            # Start analysis automatically for current API
-            self._start_analysis_auto()
-        else:
-            # Check if we have more APIs to process
-            if self.current_api_index < len(self.api_providers) - 1:
-                self.current_api_index += 1
-                self._start_next_api_processing()
-            else:
-                self.status_text.plain = "✓ All images analyzed with all APIs!"
-                self.status_text.style = "green"
-
-        # Live display will auto-refresh, no need for manual refresh
-
-    def _start_next_api_processing(self):
-        """Start processing the next API provider."""
-        if self.current_api_index < len(self.api_providers):
-            next_api = self.api_providers[self.current_api_index]
-            self.status_text.plain = f"Starting cache check for {next_api}..."
-            self.status_text.style = "blue"
-            self.cache_complete = False
-
-            # Show cache progress bar
-            self.cache_progress.visible = True
-            self.cache_task_id = self.cache_progress.add_task(
-                f"Checking cache for {next_api}...",
-                total=len(self.engine.image_paths)
-            )
-            self.engine.check_cache(next_api, self.size)
 
     def _on_analysis_progress(self, path: Path, analyzed: int, total: int, result: Any):
         """Handle analysis progress updates."""
         if not self.analysis_started:
             return
 
-        # Enqueue updates to be processed on the main thread
-        description = None
-        if isinstance(result, dict) and "description" in result:
-            description = result.get("description", "")
-        self.ui_events.put(("analysis_progress", analyzed, total, description))
+        # Update progress directly
+        if hasattr(self, 'analysis_task_id'):
+            self.analysis_progress.update(self.analysis_task_id, completed=analyzed, total=total)
+        
+        # Update results display with image analysis
+        # Always show some result, even if it's an error or empty
+        display_text = None
+        
+        if isinstance(result, Exception):
+            display_text = f"{path.name}: Error - {str(result)[:50]}..."
+        elif result:
+            description = None
+            
+            # Extract description from different possible result formats
+            if isinstance(result, dict):
+                description = result.get("description", result.get("text", ""))
+            elif isinstance(result, str):
+                description = result
+            elif hasattr(result, 'description'):
+                description = result.description
+            elif hasattr(result, 'text'):
+                description = result.text
+            
+            if description:
+                # Truncate long descriptions for display
+                if len(description) > 100:
+                    description = description[:100] + "..."
+                display_text = f"{path.name}: {description}"
+            else:
+                display_text = f"{path.name}: Analysis completed (no description)"
+        else:
+            display_text = f"{path.name}: No result returned"
+        
+        if display_text:
+            self._update_results_display(display_text)
 
-    def _start_analysis_auto(self):
-        """Start the analysis process automatically for current API."""
-        current_api = self.api_providers[self.current_api_index]
+    def _on_analysis_complete(self):
+        """Handle analysis completion for current API."""
+        # This callback is called by the engine when analysis completes
+        # We don't need to do anything here since we handle completion in _run_analysis_for_api
+        pass
+
+    async def _process_all_apis(self):
+        """Process cache check and analysis for all API providers sequentially."""
+        for api_index, api_provider in enumerate(self.api_providers):
+            self.current_api_index = api_index
+            
+            # Start cache check for this API
+            self.status_text.plain = f"Starting cache check for {api_provider}..."
+            self.status_text.style = "blue"
+            self.cache_complete = False
+
+            # Show cache progress bar
+            self.cache_progress.visible = True
+            self.cache_task_id = self.cache_progress.add_task(
+                f"Checking cache for {api_provider}...",
+                total=len(self.engine.image_paths)
+            )
+            self.engine.check_cache(api_provider, self.size)
+            
+            # If there are uncached images, start analysis
+            if len(self.engine.uncached_images) > 0:
+                await self._run_analysis_for_api(api_provider)
+            else:
+                self.status_text.plain = f"✓ All images already cached for {api_provider}"
+                self.status_text.style = "green"
+
+    async def _run_analysis_for_api(self, api_provider: str):
+        """Run analysis for a specific API and update UI accordingly."""
         self.analysis_started = True
         uncached_count = len(self.engine.uncached_images)
-
-        if uncached_count == 0:
-            return
 
         # Show analysis progress bar
         self.analysis_progress.visible = True
         self.analysis_task_id = self.analysis_progress.add_task(
-            f"Analyzing images with {current_api}...",
+            f"Analyzing images with {api_provider}...",
             total=uncached_count
         )
 
-        # Start analysis in background thread
-        analysis_thread = threading.Thread(target=self._run_analysis_sync, args=(current_api,))
-        analysis_thread.daemon = True
-        analysis_thread.start()
-
-        # Store the thread for waiting
-        self.analysis_thread = analysis_thread
-
-    def _on_analysis_complete(self):
-        """Handle analysis completion for current API."""
-        # Enqueue completion to be handled on the main thread
-        self.ui_events.put(("analysis_complete",))
-
-    def _run_analysis_sync(self, api_provider: str):
-        """Run analysis synchronously in a separate thread for a specific API."""
         try:
-            # Create a new event loop for this thread
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-
             # Run the async analysis for this specific API
-            loop.run_until_complete(
-                self.engine.run_analysis_async(
-                    max_concurrent=5,
-                    requests_per_minute=30,
-                    size=self.size,
-                    api_providers=[api_provider]
-                )
+            await self.engine.run_analysis_async(
+                max_concurrent=5,
+                requests_per_minute=30,
+                size=self.size,
+                api_providers=[api_provider]
             )
+            
+            # Mark analysis as complete
+            self.analysis_started = False
+            self.status_text.plain = f"✓ Analysis complete for {api_provider}"
+            self.status_text.style = "green"
+            
         except Exception as e:
             self.console.print(f"[red]Analysis error for {api_provider}: {e}[/red]")
+            self.analysis_started = False
 
-    def _drain_ui_events(self) -> None:
-        """Process all queued UI events on the main thread."""
-        while True:
-            try:
-                event = self.ui_events.get_nowait()
-            except Empty:
-                break
 
-            if not event:
-                continue
-
-            kind = event[0]
-            if kind == "analysis_progress":
-                analyzed, total, description = event[1], event[2], event[3]
-                if hasattr(self, 'analysis_task_id'):
-                    self.analysis_progress.update(self.analysis_task_id, completed=analyzed, total=total)
-                if description:
-                    self._update_results_display(description)
-            elif kind == "analysis_complete":
-                if hasattr(self, 'analysis_task_id'):
-                    task = self.analysis_progress.get_task(self.analysis_task_id)
-                    self.analysis_progress.update(self.analysis_task_id, completed=task.total)
-                self.analysis_started = False
-
-                if self.current_api_index < len(self.api_providers) - 1:
-                    self.current_api_index += 1
-                    self.status_text.plain = f"✓ Analysis complete for previous API. Starting next API..."
-                    self.status_text.style = "green"
-                    self._start_next_api_processing()
-                else:
-                    self.status_text.plain = "✓ All analysis complete for all APIs!"
-                    self.status_text.style = "green"
-                    self._update_results_display("[bold green]All images analyzed with all APIs![/bold green]")
-
-    def _run_ui(self):
+    async def _run_ui(self):
         """Run the Rich-based UI."""
         # Bind engine callbacks
         self.engine.on_scan_progress = self._on_scan_progress
@@ -324,8 +294,8 @@ class RichImageScannerUI:
             # Start the live display with the full layout
             with Live(
                 self.layout, 
-                refresh_per_second=4, 
-                screen=True
+                refresh_per_second=4,  # Reduce refresh rate to prevent flickering
+                screen=False  # Don't use full screen mode to see output
             ) as live:
                 self.live_display = live
                 
@@ -344,19 +314,8 @@ class RichImageScannerUI:
                 
                 # After scan, start cache check for first API
                 if self.scan_complete:
-                    self._start_next_api_processing()
-                    
-                    # Process events while cache/analysis progress
-                    while True:
-                        self._drain_ui_events()
-                        analysis_alive = hasattr(self, 'analysis_thread') and self.analysis_thread.is_alive()
-                        all_done = (not analysis_alive) and (self.current_api_index >= len(self.api_providers) - 1) and self.cache_complete and not self.analysis_started
-                        if all_done:
-                            break
-                        time.sleep(0.05)
+                    await self._process_all_apis()
 
-                # No need for final refresh - Live display will auto-refresh
-                
                 # Pause to show final results
                 self.console.print("\n[bold green]✓ All operations complete![/bold green]")
                 self.console.print("[dim]Press Enter to exit...[/dim]")
@@ -369,4 +328,4 @@ class RichImageScannerUI:
     def run(root: Path, api_providers: list[str], size: int = 512) -> None:
         """Convenience method to launch the Rich app."""
         ui = RichImageScannerUI(root, api_providers, size)
-        ui._run_ui() 
+        asyncio.run(ui._run_ui()) 
