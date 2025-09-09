@@ -48,7 +48,7 @@ class AsyncWorkerPool:
 
         # Get concurrency and rate limiting from API client
         self.max_concurrent = self.api_client.max_concurrent
-        self.requests_per_minute = self.api_client.requests_per_minute
+        self.requests_per_minute = self.api_client.rpm
 
         # Rate limiting: calculate delay between requests
         self.request_delay = 60.0 / self.requests_per_minute if self.requests_per_minute > 0 else 0
@@ -60,9 +60,6 @@ class AsyncWorkerPool:
 
         # Semaphore for limiting concurrent requests
         self.semaphore = asyncio.Semaphore(self.max_concurrent)
-
-        # Rate limiting semaphore
-        self.rate_limit_semaphore = asyncio.Semaphore(1)
 
     async def analyze_all(self) -> Dict[Path, AnalysisResult]:
         """

@@ -28,6 +28,9 @@ from ..utils.utils import (
     get_capture_datetime,
     get_device,
 )
+from ..utils.log_utils import get_logger
+
+logger = get_logger(__name__)
 
 
 class ImageScanEngine:
@@ -112,21 +115,22 @@ class ImageScanEngine:
         """
         known = 0
         self.uncached_images = []
-        for path in self.image_paths:
+        for i, path in enumerate(self.image_paths):
             if self.cache.get(path, api_provider, size) is not None:
                 known += 1
             else:
                 self.uncached_images.append(path)
-            if self.on_cache_progress:
+            # Call progress callback periodically (every 10 images or at the end)
+            if self.on_cache_progress and (i % 10 == 0 or i == len(self.image_paths) - 1):
                 self.on_cache_progress(known)
         if self.on_cache_complete:
             self.on_cache_complete(known)
 
 
-
     async def run_analysis_async(
-        self, max_concurrent: int = 10, requests_per_minute: int = 60, size: int = 512,
-        api_providers: list[str] = None
+        self, size: int = 512,
+        api_providers: list[str] = None,
+        skip_cache_check: bool = False
     ) -> None:
         if api_providers is None:
             api_providers = ["gemini"]
@@ -141,23 +145,25 @@ class ImageScanEngine:
 
         # Process each API provider
         for api_provider in api_providers:
-            print(f"\n=== Analyzing with {api_provider.upper()} ===")
-
             # Reset processed paths for each API
             self._processed_paths = set()
 
-            # Re-check cache for this specific API
-            self.check_cache(api_provider, size)
+            # Only check cache if not skipped (for UI usage where cache was already checked)
+            if not skip_cache_check:
+                self.check_cache(api_provider, size)
 
             if not self.uncached_images:
-                print(f"All images already cached for {api_provider}")
                 continue
 
-            pool = AsyncWorkerPool(
-                image_paths=self.uncached_images,
-                api_name=api_provider,
-                size=size
-            )
+            try:
+                pool = AsyncWorkerPool(
+                    image_paths=self.uncached_images,
+                    api_name=api_provider,
+                    size=size
+                )
+            except Exception as e:
+                logger.error(f"Failed to create AsyncWorkerPool: {e}")
+                continue
 
             # Instead of waiting for all results, process them as they complete
             total = len(self.uncached_images)
@@ -165,41 +171,27 @@ class ImageScanEngine:
 
             # Create tasks for all images
             tasks = [asyncio.create_task(pool._analyze_single_image(path)) for path in self.uncached_images]
+            
+            # Wait for all tasks to complete and process results
+            await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # Process all results from the pool
+            for path, result_obj in pool.results.items():
+                analyzed += 1
+                result = result_obj.result
 
-            # Process results as they complete
-            for completed_task in asyncio.as_completed(tasks):
-                try:
-                    await completed_task
-                    analyzed += 1
+                # Cache successful results
+                if not isinstance(result, Exception):
+                    self.cache.set(path, result, api_provider, size)
 
-                    # Get the latest result from the pool
-                    latest_path = None
-                    latest_result = None
-                    for path, result in pool.results.items():
-                        if path not in self._processed_paths:
-                            latest_path = path
-                            latest_result = result.result
-                            break
+                # Update cache progress since we just cached a new result
+                if self.on_cache_progress:
+                    cached_count = sum(1 for path in self.image_paths if self.cache.get(path, api_provider, size) is not None)
+                    self.on_cache_progress(cached_count)
 
-                    if latest_path and latest_result:
-                        # Cache successful results
-                        if not isinstance(latest_result, Exception):
-                            self.cache.set(latest_path, latest_result, api_provider, size)
-
-                        # Update cache progress since we just cached a new result
-                        if self.on_cache_progress:
-                            cached_count = sum(1 for path in self.image_paths if self.cache.get(path, api_provider, size) is not None)
-                            self.on_cache_progress(cached_count)
-
-                        # Call progress callback
-                        if self.on_analysis_progress:
-                            self.on_analysis_progress(latest_path, analyzed, total, latest_result)
-
-                        # Track processed paths
-                        self._processed_paths.add(latest_path)
-
-                except Exception as e:
-                    analyzed += 1
+                # Call progress callback
+                if self.on_analysis_progress:
+                    self.on_analysis_progress(path, analyzed, total, result)
 
         # Call completion callback
         if self.on_analysis_complete:

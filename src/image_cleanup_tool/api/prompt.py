@@ -79,8 +79,8 @@ Rules:
 - Do not invent dates/locations/names.
 
 POLICY (delete is intentionally loose; screenshots are usually low value after 5+ years)
-- KEEP: clear personal moments with people/pets; strong scenery/travel landmarks; important documents with long-term value (passport/ID/visa/diploma).
-- UNSURE: ambiguous subject; document-like but not clearly important; partial/obscured faces; could be personal but unclear.
+- KEEP: personal moments with people/pets; strong scenery/travel landmarks; funny pictures of friends (even low quality).
+- UNSURE: ambiguous subject; document-like but not clearly important; could be personal but unclear.
 - DELETE: default for screenshots unless clearly personal (e.g., chat with known faces or unique memory); memes; accidental shots; heavy blur/blank/dark frames; no salient subject.
 - If torn between UNSURE and DELETE and there are no people or important documents → choose DELETE.
 
@@ -108,6 +108,14 @@ Return JSON only. Examples:
   "confidence_delete": 0.20,
   "primary_category": "scenery",
   "reason": "Dim landscape; subject unclear but could be from a trip"
+},
+{
+  "decision": "keep",
+  "confidence_keep": 0.67,
+  "confidence_unsure": 0.23,
+  "confidence_delete": 0.10,
+  "primary_category": "people",
+  "reason": "Funny picture of a friend; low quality but funny"
 }
 
 """.strip()

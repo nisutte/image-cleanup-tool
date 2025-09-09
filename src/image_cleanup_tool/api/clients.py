@@ -26,15 +26,17 @@ SCHEMA_DATA = json.load(open(os.path.join(os.path.dirname(__file__), 'json_struc
 class ClaudeClient(APIClient):
     """Client for Anthropic's Claude API."""
 
-    def __init__(self, api_key: Optional[str] = None, model: str = "claude-3-haiku-20240307"):
+    def __init__(self, api_key: Optional[str] = None, model: str = "claude-3-haiku-20240307", max_concurrent: int = 10, rpm: int = 60):
         """Initialize Claude client.
 
         Args:
             api_key: Anthropic API key. If None, uses ANTHROPIC_API_KEY env var.
             model: Model name to use (default: claude-3-haiku-20240307)
+            max_concurrent: Maximum number of concurrent requests.
+            rpm: Requests per minute.
         """
         self.model = model
-        super().__init__(api_key)
+        super().__init__(api_key, max_concurrent, rpm)
 
     def _validate_api_key(self) -> None:
         """Validate Anthropic API key."""
@@ -113,15 +115,17 @@ class OpenAIClient(APIClient):
     Estimated cost is around $0.85 per 10'000 images.
     """
 
-    def __init__(self, api_key: Optional[str] = None, model: str = "gpt-5-nano"):
+    def __init__(self, api_key: Optional[str] = None, model: str = "gpt-5-nano", max_concurrent: int = 10, rpm: int = 60):
         """Initialize OpenAI client.
 
         Args:
             api_key: OpenAI API key. If None, uses OPENAI_API_KEY env var.
             model: Model name to use (default: gpt-5-nano)
+            max_concurrent: Maximum number of concurrent requests.
+            rpm: Requests per minute.
         """
         self.model = model
-        super().__init__(api_key)
+        super().__init__(api_key, max_concurrent, rpm)
 
     def _validate_api_key(self) -> None:
         """Validate OpenAI API key."""
@@ -199,15 +203,17 @@ class GeminiClient(APIClient):
     Estimaged cost is around $0.525 per 10'000 images. (half for the 8 bit model)
     """
 
-    def __init__(self, api_key: Optional[str] = None, model: str = "gemini-1.5-flash-8b"):
+    def __init__(self, api_key: Optional[str] = None, model: str = "gemini-1.5-flash-8b", max_concurrent: int = 10, rpm: int = 60):
         """Initialize Gemini client.
 
         Args:
             api_key: Google API key. If None, uses GOOGLE_API_KEY env var.
             model: Model name to use (default: gemini-1.5-flash)
+            max_concurrent: Maximum number of concurrent requests.
+            rpm: Requests per minute.
         """
         self.model = model
-        super().__init__(api_key)
+        super().__init__(api_key, max_concurrent, rpm)
 
     def _validate_api_key(self) -> None:
         """Validate Google API key."""
@@ -306,8 +312,8 @@ def get_client(api_name: str, **kwargs) -> APIClient:
     if api_name == "claude":
         return ClaudeClient(**kwargs)
     elif api_name == "openai":
-        return OpenAIClient(rpm=2000, max_concurrent=100, **kwargs)
+        return OpenAIClient(rpm=2000, max_concurrent=30, **kwargs)
     elif api_name == "gemini":
-        return GeminiClient(rpm=2000, max_concurrent=100, **kwargs)
+        return GeminiClient(rpm=2000, max_concurrent=30, **kwargs)
     else:
         raise ValueError(f"Unsupported API: {api_name}")
