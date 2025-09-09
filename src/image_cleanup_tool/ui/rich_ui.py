@@ -203,7 +203,7 @@ class RichImageScannerUI:
         """Process cache check and analysis for all API providers sequentially."""
         for api_index, api_provider in enumerate(self.api_providers):
             self.current_api_index = api_index
-            
+
             # Start cache check for this API
             self.status_text.plain = f"Starting cache check for {api_provider}..."
             self.status_text.style = "blue"
@@ -214,14 +214,20 @@ class RichImageScannerUI:
                 f"Checking cache for {api_provider}...",
                 total=len(self.engine.image_paths)
             )
+
+            # Run cache check (this will trigger progress updates via callbacks)
             self.engine.check_cache(api_provider, self.size)
-            
+
             # If there are uncached images, start analysis
             if len(self.engine.uncached_images) > 0:
                 await self._run_analysis_for_api(api_provider)
             else:
                 self.status_text.plain = f"✓ All images already cached for {api_provider}"
                 self.status_text.style = "green"
+                # Ensure the cache progress bar shows 100% completion
+                self.cache_progress.update(self.cache_task_id, completed=len(self.engine.image_paths), total=len(self.engine.image_paths))
+                # Small delay to ensure UI updates are visible
+                await asyncio.sleep(0.5)
 
     async def _run_analysis_for_api(self, api_provider: str):
         """Run analysis for a specific API and update UI accordingly."""
@@ -237,9 +243,11 @@ class RichImageScannerUI:
 
         try:
             # Run the async analysis for this specific API
+            # Skip cache check since we already did it
             await self.engine.run_analysis_async(
                 size=self.size,
-                api_providers=[api_provider]
+                api_providers=[api_provider],
+                skip_cache_check=True
             )
             
             # Mark analysis as complete
@@ -294,13 +302,15 @@ class RichImageScannerUI:
                 
                 # Start scanning
                 self.engine.scan_files()
-                
+
                 # After scan, start cache check for first API
                 if self.scan_complete:
                     await self._process_all_apis()
+                else:
+                    self.console.print("[red]Scan did not complete properly[/red]")
 
-                # Show completion message and exit
-                self.console.print("\n[bold green]✓ All operations complete![/bold green]")
+            # Show completion message and exit (outside Live context)
+            self.console.print("\n[bold green]✓ All operations complete![/bold green]")
                 
         except Exception as e:
             self.console.print(f"[red]Error: {e}[/red]")
