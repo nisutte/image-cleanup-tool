@@ -6,6 +6,7 @@
 .image_analysis_cache.json*
 images/
 .idea/
+.vscode/
 
 # uv
 .venv/
