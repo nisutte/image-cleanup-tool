@@ -207,7 +207,6 @@ class GeminiClient(APIClient):
             model: Model name to use (default: gemini-1.5-flash)
         """
         self.model = model
-        print("api key is", api_key)
         super().__init__(api_key)
 
     def _validate_api_key(self) -> None:
@@ -307,8 +306,8 @@ def get_client(api_name: str, **kwargs) -> APIClient:
     if api_name == "claude":
         return ClaudeClient(**kwargs)
     elif api_name == "openai":
-        return OpenAIClient(**kwargs)
+        return OpenAIClient(rpm=2000, max_concurrent=100, **kwargs)
     elif api_name == "gemini":
-        return GeminiClient(**kwargs)
+        return GeminiClient(rpm=2000, max_concurrent=100, **kwargs)
     else:
         raise ValueError(f"Unsupported API: {api_name}")
