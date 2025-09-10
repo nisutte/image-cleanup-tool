@@ -183,6 +183,10 @@ class ImageScanEngine:
                 # Cache successful results
                 if not isinstance(result, Exception):
                     self.cache.set(path, result, api_provider, size)
+                
+                if isinstance(result, Exception):
+                    logger.error(f"Failed to analyze {path.name}: {result}")
+                    continue
 
                 # Update cache progress since we just cached a new result
                 if self.on_cache_progress:

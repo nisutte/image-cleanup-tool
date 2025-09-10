@@ -5,8 +5,12 @@ Main CLI entry point for image cleanup tool.
 import sys
 import argparse
 from pathlib import Path
+import logging
 
 from image_cleanup_tool.core.backbone import ImageScanEngine
+from image_cleanup_tool.utils.log_utils import get_logger, configure_logging
+
+logger = get_logger(__name__)
 
 
 def parse_args():
@@ -23,6 +27,10 @@ def parse_args():
     parser.add_argument('--ui',
                       action='store_true',
                       help='Launch the interactive Rich UI instead of CLI output')
+
+    parser.add_argument('--debug',
+                      action='store_true',
+                      help='Enable debug mode')
     return parser.parse_args()
 
 
@@ -58,27 +66,27 @@ def print_histogram(date_ext_counter):
         print(f"{year:>4} | {bar} {total_y}")
 
 def cli_run(root: Path, api_providers: list[str], size: int):
-    print(f"Scanning files under {root}...")
-    print(f"Using image size: {size}x{size}")
+    logger.info(f"Scanning files under {root}...")
+    logger.info(f"Using image size: {size}x{size}")
     engine = ImageScanEngine(root)
     engine.calculate_total()
     engine.scan_files()
-    print("\nImage count by extension:")
+    logger.info("\nImage count by extension:")
     for ext, cnt in sorted(engine.ext_counter.items()):
-        print(f"  {ext}: {cnt}")
+        logger.info(f"  {ext}: {cnt}")
     print(f"  Non-image files: {engine.non_image_count}")
-    print("\nCapture date histogram:")
+    logger.info("\nCapture date histogram:")
     print_histogram(engine.date_ext_counter)
 
     # Process each API provider
     for api_provider in api_providers:
-        print(f"\n=== Processing with {api_provider.upper()} ===")
+        logger.info(f"\n=== Processing with {api_provider.upper()} ===")
 
         engine.check_cache(api_provider, size)
         total = len(engine.image_paths)
         uncached = len(engine.uncached_images)
         cached = total - uncached
-        print(f"Cached images: {cached}/{total}")
+        logger.info(f"Cached images: {cached}/{total}")
 
         if uncached:
             from image_cleanup_tool.api import ImageProcessor, get_client
@@ -87,10 +95,10 @@ def cli_run(root: Path, api_providers: list[str], size: int):
             api_client = get_client(api_provider)
 
             for path in engine.uncached_images:
-                print(f"Analyzing {path} with {api_provider}...")
+                logger.info(f"Analyzing {path} with {api_provider}...")
                 b64 = ImageProcessor.load_and_encode_image(str(path), size)
                 result, token_usage = api_client.analyze_image(b64)
-                print(f"Result: {result.get('decision')}")
+                logger.info(f"Result: {result.get('decision')}")
                 if token_usage:
                     print(f"Input and Output Tokens used: {token_usage.get('input_tokens', 'N/A')} and {token_usage.get('output_tokens', 'N/A')}")
                 engine.cache.set(path, result, api_provider, size)
@@ -98,21 +106,23 @@ def cli_run(root: Path, api_providers: list[str], size: int):
 
 def main():
     args = parse_args()
+    configure_logging(logging.DEBUG if args.debug else logging.INFO)
+
     root = Path(args.input)
     if not root.exists():
-        print(f"Error: Path '{root}' does not exist.", file=sys.stderr)
+        logger.error(f"Error: Path '{root}' does not exist.")
         sys.exit(1)
 
     # Parse API providers
     api_providers = parse_api_providers(args.api)
-    print(f"Using API provider(s): {', '.join(api_providers)}")
+    logger.info(f"Using API provider(s): {', '.join(api_providers)}")
 
     if args.ui:
         try:
             from image_cleanup_tool.ui import RichImageScannerUI
             RichImageScannerUI.run(root, api_providers, args.size)
         except ImportError:
-            print("Error: Rich UI dependencies are not installed.", file=sys.stderr)
+            logger.error("Error: Rich UI dependencies are not installed.")
             sys.exit(1)
     else:
         cli_run(root, api_providers, args.size)

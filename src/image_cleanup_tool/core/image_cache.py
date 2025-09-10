@@ -192,7 +192,7 @@ def compute_image_hash(path: Path) -> str:
     # Build fingerprint string (omit model/lens, add file size & brightness)
     parts = [ts, make, str(width), str(height), str(size), brightness, str(lat), str(lon)]
     fingerprint = '|'.join(parts)
-    logger.info("Fingerprint parts for %s: %r", path, parts)
+    logger.debug("Fingerprint parts for %s: %r", path, parts)
     # Return SHA256 hex digest
     return hashlib.sha256(fingerprint.encode('utf-8')).hexdigest()
 

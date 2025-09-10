@@ -100,7 +100,7 @@ class AsyncWorkerPool:
                 await self._rate_limit()
                 
                 # Process the image
-                logger.debug(f"Analyzing {path.name}")
+                logger.info(f"Analyzing {path.name}")
                 
                 # Load and encode image (this is CPU-bound, so we run it in a thread pool)
                 loop = asyncio.get_event_loop()
@@ -121,7 +121,7 @@ class AsyncWorkerPool:
                 )
                 
                 self.completed_count += 1
-                logger.debug(f"Completed {path.name} in {processing_time:.2f}s")
+                logger.info(f"Completed {path.name} in {processing_time:.2f}s")
                 
         except Exception as e:
             processing_time = time.time() - start_time
@@ -134,6 +134,7 @@ class AsyncWorkerPool:
             )
             self.completed_count += 1
             logger.error(f"Failed to analyze {path.name}: {e}")
+            logger.error(f"response: {result}")
 
     async def _rate_limit(self) -> None:
         """Implement rate limiting between requests."""
