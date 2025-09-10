@@ -3,7 +3,7 @@
 *.jpg
 *.heic
 *.png
-.image_analysis_cache.json*
+.image_analysis_cache*
 images/
 .idea/
 .vscode/
