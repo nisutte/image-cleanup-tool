@@ -53,7 +53,7 @@ class RichImageScannerUI:
         layout.split_column(
             Layout(name="progress_section", size=7),
             Layout(name="stats_section", size=4),
-            Layout(name="results_section", size=3)
+            Layout(name="results_section", size=7)
         )
         return layout
 
@@ -207,11 +207,11 @@ class RichImageScannerUI:
         self.analysis_results.append(new_result)
 
         # Keep only the last 3 results
-        if len(self.analysis_results) > 3:
-            self.analysis_results = self.analysis_results[-3:]
+        if len(self.analysis_results) > 5:
+            self.analysis_results = self.analysis_results[-5:]
 
         # Mutate the existing Text object to avoid replacing renderables
-        display_text = "\n\n".join(self.analysis_results)
+        display_text = "\n".join(self.analysis_results)
         self.results_text.plain = display_text
 
     def _on_scan_progress(self, scanned: int, total: int, ext_counter: Counter,
