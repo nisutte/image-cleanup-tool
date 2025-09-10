@@ -17,6 +17,7 @@ import base64
 import io
 import os
 import sys
+from math import sqrt
 
 from ..utils.log_utils import configure_logging, get_logger
 logger = get_logger(__name__)
@@ -40,22 +41,25 @@ def process_image(path, sizes):
         logger.exception("Failed to open image '%s'", path)
         sys.exit(1)
 
-    # Crop to centered square to preserve aspect ratio
-    w, h = img.size
-    min_side = min(w, h)
-    left = (w - min_side) // 2
-    top = (h - min_side) // 2
-    img = img.crop((left, top, left + min_side, top + min_side))
-
-    try:
-        resample_filter = Image.Resampling.LANCZOS
-    except AttributeError:
-        resample_filter = Image.LANCZOS
-
     results = {}
     for size in sizes:
-        img_resized = img.resize((size, size), resample=resample_filter)
-        # Convert to RGB for JPEG (JPEG format does not support alpha channels)
+        w, h = img.size
+        aspect_ratio = w / h
+        new_w, new_h = sqrt(size**2 / aspect_ratio), sqrt(size**2 * aspect_ratio)
+
+        smaller_side = min(new_w, new_h)
+        smaller_side = int(round(smaller_side / 32) * 32)
+        if new_w < new_h:
+            new_w, new_h = smaller_side, int(round(smaller_side * aspect_ratio))
+        else:
+            new_h, new_w = smaller_side, int(round(smaller_side / aspect_ratio))
+
+        try:
+            resample_filter = Image.Resampling.LANCZOS
+        except AttributeError:
+            resample_filter = Image.LANCZOS
+
+        img_resized = img.resize((new_w, new_h), resample=resample_filter)
         if img_resized.mode != "RGB":
             img_resized = img_resized.convert("RGB")
         buffer = io.BytesIO()
@@ -68,8 +72,8 @@ def process_image(path, sizes):
 
 def crop_and_resize_to_b64(path: str, sizes: List[int]) -> Dict[str, str]:
     """
-    Crop a single image to centered square, resize to each dimension in sizes,
-    and return a dict mapping each size (as str) to its base64 JPEG string.
+    For a single image, crop to preserve aspect ratio and approximate the target pixel count for each requested size.
+    Resize to each size in `sizes` and return a dict mapping size (as str) to base64-encoded JPEG.
     """
     return process_image(path, sizes)
 
@@ -85,6 +89,9 @@ def batch_images_to_b64(input_path: str, sizes: List[int]) -> Dict[str, Dict[str
         for root, _, files in os.walk(input_path):
             for fname in files:
                 ext = os.path.splitext(fname)[1].lower()
+                # Skip macOS metadata files
+                if fname.startswith("._") or fname == ".DS_Store":
+                    continue
                 if ext not in allowed_exts:
                     continue
                 full = os.path.join(root, fname)

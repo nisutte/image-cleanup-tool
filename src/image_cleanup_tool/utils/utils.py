@@ -31,6 +31,10 @@ def iter_files(root: Path) -> Iterator[Path]:
         try:
             with os.scandir(current) as it:
                 for entry in it:
+                    # Skip macOS metadata files that masquerade as images
+                    name = entry.name
+                    if name.startswith("._") or name == ".DS_Store":
+                        continue
                     if entry.is_dir(follow_symlinks=False):
                         stack.append(Path(entry.path))
                     elif entry.is_file(follow_symlinks=False):
