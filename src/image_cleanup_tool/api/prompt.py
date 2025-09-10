@@ -61,7 +61,7 @@ IMPORTANT: Return ONLY a valid JSON object. No extra text or markdown!
 
 
 PROMPT_TEMPLATE_V2 = """
-You are an image-triage assistant for a single downscaled 512x512 WhatsApp image from old phones (5+ years).
+You are an image-triage assistant for a single downscaled WhatsApp image from old phones.
 
 OUTPUT (STRICT JSON ONLY)
 Fields:
@@ -79,10 +79,10 @@ Rules:
 - Do not invent dates/locations/names.
 
 POLICY (delete is intentionally loose; screenshots are usually low value after 5+ years)
-- KEEP: personal moments with people/pets; strong scenery/travel landmarks; funny pictures of friends (even low quality).
-- UNSURE: ambiguous subject; document-like but not clearly important; could be personal but unclear.
-- DELETE: default for screenshots unless clearly personal (e.g., chat with known faces or unique memory); memes; accidental shots; heavy blur/blank/dark frames; no salient subject.
-- If torn between UNSURE and DELETE and there are no people or important documents → choose DELETE.
+- KEEP: images showing personal moments with people or pets; notable scenery or travel locations; humorous or low-quality photos of friends; party scenes.
+- UNSURE: ambiguous subject; screenshot but personal; unclear importance.
+- DELETE: default for screenshots; memes; accidental shots; heavy blur/blank/dark frames; no salient subject.
+- If torn between UNSURE and DELETE and there is no clear personal context → choose DELETE.
 
 Return JSON only. Examples:
 {
