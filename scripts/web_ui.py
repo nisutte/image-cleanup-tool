@@ -83,6 +83,7 @@ def get_image(subpath):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+if __name__ == "__main__":
     print("🚀 Starting Image Classification Comparison Web UI")
     print(f"📊 Visit: http://{args.host}:{args.port}")
     print(f"🔄 Using cache file: {CACHE_FILE}")
