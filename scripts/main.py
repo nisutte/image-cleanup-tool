@@ -106,7 +106,7 @@ def cli_run(root: Path, api_providers: list[str], size: int):
 
 def main():
     args = parse_args()
-    configure_logging(logging.DEBUG if args.debug else logging.INFO)
+    configure_logging(logging.DEBUG if args.debug else logging.INFO, enable_rich=args.ui)
 
     root = Path(args.input)
     if not root.exists():

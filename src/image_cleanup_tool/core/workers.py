@@ -84,7 +84,7 @@ class AsyncWorkerPool:
         wait=wait_exponential(multiplier=1, min=4, max=10),
         retry=retry_if_exception_type((aiohttp.ClientError, asyncio.TimeoutError))
     )
-    async def _analyze_single_image(self, path: Path) -> None:
+    async def _analyze_single_image(self, path: Path) -> Union[dict, Exception]:
         """
         Analyze a single image with retry logic and rate limiting.
         
@@ -122,6 +122,7 @@ class AsyncWorkerPool:
                 
                 self.completed_count += 1
                 logger.info(f"Completed {path.name} in {processing_time:.2f}s")
+                return result
                 
         except Exception as e:
             processing_time = time.time() - start_time
@@ -134,7 +135,7 @@ class AsyncWorkerPool:
             )
             self.completed_count += 1
             logger.error(f"Failed to analyze {path.name}: {e}")
-            logger.error(f"response: {result}")
+            return e
 
     async def _rate_limit(self) -> None:
         """Implement rate limiting between requests."""
