@@ -312,8 +312,8 @@ def get_client(api_name: str, **kwargs) -> APIClient:
     if api_name == "claude":
         return ClaudeClient(**kwargs)
     elif api_name == "openai":
-        return OpenAIClient(rpm=2000, max_concurrent=30, **kwargs)
+        return OpenAIClient(rpm=0, max_concurrent=32, **kwargs)
     elif api_name == "gemini":
-        return GeminiClient(rpm=2000, max_concurrent=30, **kwargs)
+        return GeminiClient(rpm=0, max_concurrent=32, **kwargs)
     else:
         raise ValueError(f"Unsupported API: {api_name}")
