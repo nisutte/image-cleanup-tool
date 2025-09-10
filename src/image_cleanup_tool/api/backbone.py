@@ -78,6 +78,19 @@ class APIClient(ABC):
         except json.JSONDecodeError:
             logger.error("Failed to parse JSON response: %s", response_text)
             raise ValueError(f"Invalid JSON response: {response_text}")
+        except Exception as err:
+            # Map API errors to a standardized 'unsure' result so it can be cached
+            message = str(err)
+            fallback = {
+                "decision": "unsure",
+                "confidence_keep": 0.0,
+                "confidence_unsure": 1.0,
+                "confidence_delete": 0.0,
+                "primary_category": "error",
+                "reason": (message[:100] if isinstance(message, str) else "API error")
+            }
+            logger.warning("API error mapped to unsure/error result: %s", message)
+            return fallback, {}
 
 
 class ImageProcessor:
