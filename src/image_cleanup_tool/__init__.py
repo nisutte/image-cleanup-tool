@@ -27,6 +27,21 @@ from .api import (
 )
 from .core.workers import AsyncWorkerPool, analyze_images_async
 
+
+def main():
+    """Entry point for the image-cleanup command."""
+    import sys
+    from pathlib import Path
+    
+    # Add scripts directory to path
+    scripts_dir = Path(__file__).parent.parent.parent / "scripts"
+    sys.path.insert(0, str(scripts_dir))
+    
+    # Import and run main
+    from main import main as cli_main
+    cli_main()
+
+
 __all__ = [
     "ImageScanEngine",
     "APIClient",

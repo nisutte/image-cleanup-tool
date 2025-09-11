@@ -11,16 +11,21 @@ This project uses [uv](https://github.com/astral.sh/uv) for dependency managemen
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
 uv sync     # build the environment
+uv pip install -e .  # install the image-cleanup command
+source .venv/bin/activate  # activate the environment
 ```
 
 ### Basic Usage
 
 ```bash
 # Analyze images in a directory (launches UI)
-uv run scripts/main.py --ui path/to/images/
+image-cleanup --ui path/to/images/
 
 # Use specific API
-uv run scripts/main.py --ui path/to/images/ --api openai
+image-cleanup --ui path/to/images/ --api openai
+
+# Alternative: if you prefer not to activate the environment
+uv run image-cleanup --ui path/to/images/
 ```
 
 ## Two-Phase Cleanup
@@ -43,13 +48,13 @@ Test API performance and determinism:
 
 ```bash
 # Test API performance and determinism
-uv run scripts/main.py path/to/images/ --benchmark --limit 5
+image-cleanup path/to/images/ --benchmark --limit 5
 
 # Test single image multiple times
-uv run scripts/main.py path/to/images/ --benchmark --test-image images/photo.jpg
+image-cleanup path/to/images/ --benchmark --test-image images/photo.jpg
 
 # Compare all APIs on same images
-uv run scripts/main.py path/to/images/ --benchmark --api all --limit 3
+image-cleanup path/to/images/ --benchmark --api all --limit 3
 ```
 
 Benchmark mode shows:
@@ -101,10 +106,6 @@ print(f"Decision: {result['decision']}")
 print(f"Confidence: {result['confidence_keep']:.2f}")
 ```
 
-
-
-
-
 ## Analysis Output
 
 Each image analysis returns structured JSON:
@@ -144,6 +145,9 @@ uv run python -c "from image_cleanup_tool.core.scan_engine import ImageScanEngin
 
 # Test web UI (development only)
 uv run python tests/web_ui.py
+
+# Test the entry point
+image-cleanup --help
 ```
 
 ### Adding New APIs

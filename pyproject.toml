@@ -31,7 +31,7 @@ build-backend = "hatchling.build"
 packages = ["src/image_cleanup_tool"]
 
 [project.scripts]
-image-cleanup = "image_cleanup_tool.scripts.main:main"
+image-cleanup = "image_cleanup_tool:main"
 
 [tool.ruff]
 line-length = 88
