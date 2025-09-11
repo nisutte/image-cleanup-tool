@@ -7,11 +7,9 @@ display progress bars, and show analysis results in real-time.
 """
 
 import asyncio
-import time
 from pathlib import Path
 from collections import Counter
-from turtle import window_width
-from typing import Any, List
+from typing import Any, List, Dict, Optional
 
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn, TimeRemainingColumn
@@ -20,9 +18,21 @@ from rich.layout import Layout
 from rich.live import Live
 from rich.text import Text
 from rich.table import Table
+from rich.prompt import Prompt
+from rich.align import Align
 
 from ..core.backbone import ImageScanEngine
 from ..utils.log_utils import get_logger
+
+from ..core.file_operations import (
+    calculate_cleanup_plan,
+    execute_cleanup_phase_1,
+    execute_cleanup_phase_2,
+    count_remaining_files,
+    select_bucket
+)
+
+
 
 logger = get_logger(__name__)
 
@@ -46,6 +56,12 @@ class RichImageScannerUI:
         self.total_analyzed = 0
         self.stats_text = Text("Waiting for stats...", style="dim")
         self.status_text = Text(f"Initializing with {size}x{size} images and {len(self.api_providers)} API(s): {', '.join(self.api_providers)}", style="blue")
+        
+        # Cleanup-related attributes
+        self.cleanup_phase = 0  # 0: not started, 1: phase 1 complete, 2: phase 2 complete
+        self.cleanup_bucket_counts: Dict[str, int] = {}
+        self.run_base: Optional[Path] = None
+        self.manifest_path: Optional[Path] = None
 
     def _create_layout(self) -> Layout:
         """Create the main layout structure."""
@@ -147,6 +163,7 @@ class RichImageScannerUI:
             title="[bold]Analysis Summary",
             border_style="magenta"
         )
+
 
     def _update_stats_panel(self) -> None:
         """Rebuild the stats bar and update the layout panel if displayed."""
@@ -290,6 +307,187 @@ class RichImageScannerUI:
         # We don't need to do anything here since we handle completion in _run_analysis_for_api
         pass
 
+    def _select_bucket(self, entry: Dict[str, Any], model_key: str) -> Optional[str]:
+        """Select bucket for an entry based on analysis results using core logic."""
+        return select_bucket(entry, model_key, 0.60, 0.50, 0.75)
+
+    def _calculate_cleanup_plan(self) -> Dict[str, int]:
+        """Calculate how many files will go to each bucket using core logic."""
+        model_key = f"{self.api_providers[0]}_{self.size}"
+        cache_path = Path('.image_analysis_cache.json')
+        
+        if not cache_path.exists():
+            return {}
+            
+        return calculate_cleanup_plan(cache_path, model_key)
+
+    def _run_cleanup_phase_1(self) -> bool:
+        """Run Phase 1: Copy files to review buckets."""
+        # Calculate cleanup plan
+        self.cleanup_bucket_counts = self._calculate_cleanup_plan()
+        
+        if not self.cleanup_bucket_counts:
+            self.console.print("[yellow]No files need cleanup based on current analysis.[/yellow]")
+            return False
+        
+        # Show confirmation with Rich UI
+        total_files = sum(self.cleanup_bucket_counts.values())
+        
+        # Create confirmation panel
+        confirmation_text = Text()
+        confirmation_text.append("Cleanup Phase 1: Copy Files for Review\n", style="bold blue")
+        confirmation_text.append(f"\nI will copy files to review folders:\n")
+        for bucket, count in self.cleanup_bucket_counts.items():
+            confirmation_text.append(f"• {count} files → {bucket}/\n")
+        confirmation_text.append(f"\nTotal: {total_files} files to copy\n")
+        confirmation_text.append(f"\nThis creates COPIES for your review.\n")
+        confirmation_text.append(f"Original files remain untouched.\n", style="green")
+        
+        confirmation_panel = Panel(
+            Align.center(confirmation_text),
+            title="[bold]Phase 1 Confirmation[/bold]",
+            border_style="blue"
+        )
+        
+        self.console.print(confirmation_panel)
+        
+        confirmation = Prompt.ask("\n[bold yellow]Type \"yes\" to continue[/bold yellow]", default="no")
+        if confirmation.lower() != "yes":
+            self.console.print("[yellow]Cleanup cancelled.[/yellow]")
+            return False
+        
+        # Execute Phase 1 using move_images.py logic
+        return self._execute_cleanup_phase_1()
+
+    def _execute_cleanup_phase_1(self) -> bool:
+        """Execute the actual file copying for Phase 1 using core logic."""
+        try:
+            self.run_base = Path('.') / 'image_cleanup_moves'
+            self.manifest_path = self.run_base / 'manifest.json'
+            
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[bold blue]Copying files..."),
+                console=self.console
+            ) as progress:
+                task = progress.add_task("Copying files", total=1)
+                
+                success = execute_cleanup_phase_1(
+                    cache_path=Path('.image_analysis_cache.json'),
+                    model_key=f"{self.api_providers[0]}_{self.size}",
+                    run_base=self.run_base,
+                    execute=True,
+                    verbose=False
+                )
+                progress.advance(task)
+                
+                if not success:
+                    return False
+            
+            self.cleanup_phase = 1
+            return True
+            
+        except Exception as e:
+            self.console.print(f"[red]Error in Phase 1: {e}[/red]")
+            return False
+
+    def _run_cleanup_phase_2(self) -> bool:
+        """Run Phase 2: Move remaining files to final deletion."""
+        if not self.manifest_path or not self.manifest_path.exists():
+            self.console.print("[red]No manifest found for Phase 2![/red]")
+            return False
+        
+        # Count remaining files in buckets using core function
+        remaining_counts = count_remaining_files(self.run_base)
+        
+        if not remaining_counts:
+            self.console.print("[yellow]No files remaining in review folders.[/yellow]")
+            return False
+        
+        # Show confirmation with Rich UI
+        total_remaining = sum(remaining_counts.values())
+        
+        # Create confirmation panel
+        confirmation_text = Text()
+        confirmation_text.append("Cleanup Phase 2: Final Organization\n", style="bold red")
+        confirmation_text.append(f"\nFiles remaining in review folders:\n")
+        for bucket, count in remaining_counts.items():
+            confirmation_text.append(f"• {count} files in {bucket}/\n")
+        confirmation_text.append(f"\nTotal: {total_remaining} files will be MOVED to final_deletion/\n", style="bold red")
+        confirmation_text.append(f"\n📁 WHAT HAPPENS:\n", style="bold")
+        confirmation_text.append(f"• Files that stay in review folders → moved to final_deletion/\n")
+        confirmation_text.append(f"• Files you deleted from review folders → remain in original location\n")
+        confirmation_text.append(f"• NO files are actually deleted by this program\n", style="green")
+        confirmation_text.append(f"• You must manually delete final_deletion/ after the program is finished\n", style="yellow")
+        
+        confirmation_panel = Panel(
+            Align.center(confirmation_text),
+            title="[bold red]⚠️  FINAL ORGANIZATION  ⚠️[/bold red]",
+            border_style="red"
+        )
+        
+        self.console.print(confirmation_panel)
+        
+        confirmation = Prompt.ask(
+            "\n[bold red]Type \"yes\" to confirm final organization, \"update\" to rescan folders[/bold red]", 
+            default="no"
+        )
+        if confirmation.lower() == "update":
+            self.console.print("[blue]Rescanning folders...[/blue]")
+            # Recursively call Phase 2 to rescan
+            return self._run_cleanup_phase_2()
+        elif confirmation.lower() != "yes":
+            self.console.print("[yellow]Final organization cancelled.[/yellow]")
+            return False
+        
+        # Execute Phase 2
+        return self._execute_cleanup_phase_2(remaining_counts)
+
+    def _execute_cleanup_phase_2(self, remaining_counts: Dict[str, int]) -> bool:
+        """Execute the actual file moving for Phase 2 using core logic."""
+        try:
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[bold red]Organizing files to final_deletion/..."),
+                console=self.console
+            ) as progress:
+                task = progress.add_task("Moving files", total=1)
+                
+                success = execute_cleanup_phase_2(
+                    run_base=self.run_base,
+                    execute=True,
+                    verbose=False
+                )
+                progress.advance(task)
+                
+                if not success:
+                    return False
+            
+            self.cleanup_phase = 2
+            return True
+            
+        except Exception as e:
+            self.console.print(f"[red]Error in Phase 2: {e}[/red]")
+            return False
+
+    async def _handle_cleanup_process(self):
+        """Handle the cleanup process after analysis is complete."""
+        try:
+            # Phase 1: Copy files to review buckets
+            if self._run_cleanup_phase_1():
+                # Phase 2: Move remaining files to final deletion
+                if self._run_cleanup_phase_2():
+                    self.console.print("\n[bold green]✓ Cleanup process completed successfully![/bold green]")
+                else:
+                    self.console.print("\n[yellow]Phase 2 was not completed.[/yellow]")
+            else:
+                self.console.print("\n[yellow]Phase 1 was not completed.[/yellow]")
+                
+        except KeyboardInterrupt:
+            self.console.print("\n[yellow]Cleanup process cancelled by user.[/yellow]")
+        except Exception as e:
+            self.console.print(f"\n[red]Error in cleanup process: {e}[/red]")
+
     async def _process_all_apis(self):
         """Process cache check and analysis for all API providers sequentially."""
         for api_index, api_provider in enumerate(self.api_providers):
@@ -392,6 +590,7 @@ class RichImageScannerUI:
             results_panel = self._create_results_section()
             self.layout["results_section"].update(results_panel)
             
+            
             # Start the live display with the full layout
             with Live(
                 self.layout, 
@@ -418,6 +617,10 @@ class RichImageScannerUI:
                     await self._process_all_apis()
                 else:
                     logger.info("[red]Scan did not complete properly[/red]")
+
+            # After analysis is complete, handle cleanup process
+            if self.total_analyzed > 0:
+                await self._handle_cleanup_process()
 
             # Show completion message and exit (outside Live context)
             logger.info("\n[bold green]✓ All operations complete![/bold green]")
