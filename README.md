@@ -1,226 +1,158 @@
 # Image Cleanup Tool
 
-A tool for scanning and analyzing personal photos using AI.
+An AI-powered tool for analyzing and organizing personal photos. Uses multiple AI models (OpenAI, Claude, Gemini) to classify images and help you decide what to keep, delete, or review.
 
-## Project Structure
+## Quick Start
 
-This project follows Python packaging best practices:
+### Installation
 
-```
-image-cleanup-tool-1/
-├── src/image_cleanup_tool/     # Main package
-│   ├── core/                   # Core functionality
-│   ├── api/                    # External API integrations
-│   ├── ui/                     # User interface components
-│   └── utils/                  # Shared utilities
-├── scripts/                    # CLI entry points
-├── tests/                      # Test suite
-└── pyproject.toml             # Project configuration
-```
-
-## Image Preprocessing Script
-
-`resize_and_encode.py` crops images to a centered square, resizes them to specified square dimensions, and outputs base64-encoded JPEG strings, suitable for use with the o4-mini model. It accepts either a single image file or a directory (recursively processes JPEG/PNG/HEIC files).
-
-### Prerequisites
-
-This project uses [uv](https://github.com/astral.sh/uv) for dependency management. Install uv first:
+This project uses [uv](https://github.com/astral.sh/uv) for dependency management, to install it run:
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
+uv sync     # build the environment
 ```
 
-Then install dependencies:
+### Basic Usage
 
 ```bash
-uv sync
+# Analyze images in a directory (launches UI)
+uv run scripts/main.py --ui path/to/images/
+
+# Use specific API
+uv run scripts/main.py --ui path/to/images/ --api openai
 ```
 
-Alternatively, if you prefer pip:
+## Two-Phase Cleanup
+
+After the images are analyzed, the tool uses a safe two-phase approach for the cleanup part:
+
+**Phase 1**: Copy files to review buckets based on AI analysis
+- `to_delete/` - Files marked for deletion
+- `unsure/` - Files needing manual review
+- `low_keep/` - Files to keep but with low confidence
+- `documents/` - Document images
+
+**Phase 2**: Move remaining files to final deletion
+- Files still in review buckets → moved to `final_deletion/`
+- Files you deleted from buckets → remain in original location
+
+## Benchmark Mode
+
+Test API performance and determinism:
 
 ```bash
-pip install pillow pillow-heif rich openai aiohttp tenacity
+# Test API performance and determinism
+uv run scripts/main.py path/to/images/ --benchmark --limit 5
+
+# Test single image multiple times
+uv run scripts/main.py path/to/images/ --benchmark --test-image images/photo.jpg
+
+# Compare all APIs on same images
+uv run scripts/main.py path/to/images/ --benchmark --api all --limit 3
 ```
 
-### Usage
+Benchmark mode shows:
+- **Performance comparison** (average response times)
+- **Determinism testing** (consistency across multiple runs)
+- **Detailed results** per image and API
 
-With uv (recommended):
-```bash
-# Single image:
-uv run python src/image_cleanup_tool/core/image_encoder.py path/to/image.jpg --output-dir b64_out --sizes 512 256
+## API Configuration
 
-# Entire directory (recursive batch):
-uv run python src/image_cleanup_tool/core/image_encoder.py path/to/images_dir --output-dir b64_out --sizes 512 256
-```
+### Environment Variables
 
-With pip:
-```bash
-# Single image:
-python3 resize_and_encode.py path/to/image.jpg --output-dir b64_out --sizes 512 256
-
-# Entire directory (recursive batch):
-python3 resize_and_encode.py path/to/images_dir --output-dir b64_out --sizes 512 256
-```
-
-Each processed image produces one text file per size, named `<basename>_<size>.txt`, under the given output directory (mirroring subfolders for batch mode).
-
-## Listing & inspecting images
-
-After installing prerequisites, you can perform a quick CLI scan or launch the interactive TUI.
-
-### Non-interactive CLI
-
-Scan a directory to count images by extension and display a capture-date histogram.
-The CLI will also report how many images are cached, then prompt to analyze any uncached images one by one:
+Set up your API keys:
 
 ```bash
-uv run python scripts/main.py path/to/images_dir
+# OpenAI (GPT-5-nano)
+export OPENAI_API_KEY=your_openai_key
+
+# Anthropic (Claude Haiku)
+export ANTHROPIC_API_KEY=your_anthropic_key
+
+# Google (Gemini Flash)
+export GOOGLE_API_KEY=your_google_key
 ```
 
-### Interactive Rich UI
+### API Comparison
 
-Launch the interactive Rich UI to explore scan progress, cache status, and image analysis in real time:
-
-```bash
-uv run python scripts/main.py --ui path/to/images_dir
-```
-
-- **Scan Progress Bar**: Shows file scanning progress with time elapsed
-- **Cache Status Bar**: Displays cached vs uncached images with color coding (green=cached, yellow=uncached)
-- **Analysis Progress Bar**: Full-width progress bar for analyzing uncached images with time remaining
-- **Results Display**: 3-line text area showing latest analysis results with color-coded classifications
-- **Automatic Analysis**: Analysis starts automatically after cache check completes
-
-## Image Analysis with OpenAI GPT
-
-`openai_api.py` uses OpenAI's GPT-4o Vision model to analyze a single image. It sends a prompt requesting:
-1. A 3-sentence description.
-2. Scores for categories (`blurry`, `meme`, `screenshot`, `document`, `personal`, `non_personal`, `contains_faces`).
-3. A final classification (`keep`, `discard`, `unsure`).
-
-The script requires the `OPENAI_API_KEY` environment variable to be set.
-
-### CLI Usage
-```bash
-export OPENAI_API_KEY=your_api_key
-uv run python src/image_cleanup_tool/api/openai_api.py path/to/image.jpg [size] [--log-level LEVEL]
-```
-- `path/to/image.jpg`: Path to the image file to analyze.
-- `size`: Optional integer for the square crop/resize dimension (default: 512).
-- `--log-level`: Optional logging level (`debug`, `info`, `warning`, `error`, `critical`, `none`).
-
-The output is printed as formatted JSON with these keys:
-- `description`: Textual description of the image.
-- `category_scores`: Scores for each category.
-- `final_classification`: Scores suggesting whether to keep, discard, or mark as unsure.
-
-### Python API
-```python
-import json
-from openai_api import load_and_encode_image, analyze_image
-
-# Load and encode image to a base64 string
-image_b64 = load_and_encode_image("path/to/foo.jpg", 512)
-
-# Analyze and get the result dict
-result = analyze_image(image_b64)
-print(json.dumps(result, indent=2))
-```
+| API | Model | Speed | Cost | Deterministic |
+|-----|-------|-------|------|---------------|
+| OpenAI | GPT-5-nano | Fast | ~$0.85/10k images | Usually |
+| Claude | Haiku | Medium | ~$0.50/10k images | Usually |
+| Gemini | Flash 8B | Fastest | ~$0.26/10k images | Usually |
 
 ## Python API
 
-If you’d rather call the logic programmatically, import these helpers:
+### Basic Usage
 
 ```python
-from image_cleanup_tool.core.image_encoder import (
-    crop_and_resize_to_b64,
-    batch_images_to_b64,
-)
-from image_cleanup_tool.utils.log_utils import configure_logging
+from image_cleanup_tool.api import ImageProcessor, get_client
+
+# Load and encode image
+image_b64 = ImageProcessor.load_and_encode_image("photo.jpg", 512)
+
+# Create API client
+client = get_client("gemini")
+
+# Analyze image
+result, tokens = client.analyze_image(image_b64)
+print(f"Decision: {result['decision']}")
+print(f"Confidence: {result['confidence_keep']:.2f}")
 ```
 
-# initialize logging (optional)
-configure_logging()
 
-# Single image → dict of size→base64
-b64_map = crop_and_resize_to_b64("foo.jpg", [512, 256])
 
-# Directory batch → dict of rel_path→(size→base64)
-batches = batch_images_to_b64("images_dir", [512, 256])
 
-# Persist to disk:
-write_b64_files(batches, "out_dir")
+
+## Analysis Output
+
+Each image analysis returns structured JSON:
+
+```json
+{
+  "decision": "keep",
+  "confidence_keep": 0.85,
+  "confidence_unsure": 0.10,
+  "confidence_delete": 0.05,
+  "primary_category": "personal",
+  "reason": "Clear photo of people, good quality, worth keeping"
+}
 ```
 
-### Async Image Analysis
+### Categories
 
-For efficient concurrent image analysis, use the async worker pool:
+- **personal** - Photos of people, family, friends
+- **document** - Screenshots, receipts, text documents
+- **meme** - Internet memes, funny images
+- **screenshot** - Screen captures, app interfaces
+- **blurry** - Low quality, out of focus images
 
-```python
-import asyncio
-from image_cleanup_tool.core import analyze_images_async, AsyncWorkerPool
+### Decisions
 
-# Simple usage with convenience function
-async def analyze_my_images():
-    image_paths = [Path("image1.jpg"), Path("image2.jpg")]
-    results = await analyze_images_async(
-        image_paths=image_paths,
-        max_concurrent=5,        # Process 5 images at once
-        requests_per_minute=30,  # Rate limit to 30 requests per minute
-        size=512                 # Resize images to 512x512
-    )
-    
-    for path, result in results.items():
-        if not isinstance(result.result, Exception):
-            classification = result.result['final_classification']
-            print(f"{path.name}: {classification['keep']}% keep")
+- **keep** - High quality, meaningful content
+- **delete** - Low quality, duplicates, unwanted content
+- **unsure** - Needs manual review
 
-# Advanced usage with custom worker pool
-async def advanced_analysis():
-    pool = AsyncWorkerPool(
-        image_paths=image_paths,
-        max_concurrent=10,
-        requests_per_minute=60,
-        size=512,
-        timeout=30.0
-    )
-    
-    results = await pool.analyze_all()
-    # Process results...
+## Development
 
-# Run the async function
-asyncio.run(analyze_my_images())
+### Running Tests
+
+```bash
+# Test imports and basic functionality
+uv run python -c "from image_cleanup_tool.core.scan_engine import ImageScanEngine; print('✅ All imports working')"
+
+# Test web UI (development only)
+uv run python tests/web_ui.py
 ```
 
-The async implementation provides:
-- **Efficient concurrency** using asyncio instead of threading
-- **Built-in rate limiting** to respect API limits
-- **Automatic retry logic** with exponential backoff
-- **Progress tracking** for monitoring analysis status
-- **Connection pooling** for better performance
+### Adding New APIs
 
-### Cache Management
+1. Create a new client class inheriting from `APIClient` in `api/clients.py`
+2. Implement the required abstract methods
+3. Add the client to the `get_client()` factory function
+4. Update the available APIs list in `main.py`
 
-The image analysis cache includes versioning and cleanup features:
+## License
 
-```python
-from image_cleanup_tool.core import ImageCache
-
-# Create cache with specific model
-cache = ImageCache(model="gpt-4.1-nano")
-
-# Get cache statistics
-stats = cache.get_stats()
-print(f"Cache has {stats['total_entries']} entries")
-
-# Clean up old entries (older than 30 days, max 10000 entries)
-removed = cache.cleanup(max_age_days=30, max_entries=10000)
-print(f"Removed {removed} old entries")
-```
-
-**Features:**
-- **Version control**: Cache entries are invalidated when analysis logic changes
-- **Model tracking**: Different AI models have separate cache entries
-- **Automatic cleanup**: Remove old entries by age or count
-- **Statistics**: Monitor cache size and usage
-- **Backward compatibility**: Handles legacy cache formats
+This project is licensed under the MIT License - see the LICENSE file for details.
