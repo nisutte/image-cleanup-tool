@@ -4,10 +4,13 @@ Main CLI entry point for image cleanup tool.
 """
 import sys
 import argparse
+import time
+import json
 from pathlib import Path
+from typing import Dict, Any, List
 import logging
 
-from image_cleanup_tool.core.backbone import ImageScanEngine
+from image_cleanup_tool.core.scan_engine import ImageScanEngine
 from image_cleanup_tool.utils.log_utils import get_logger, configure_logging
 
 logger = get_logger(__name__)
@@ -27,6 +30,15 @@ def parse_args():
     parser.add_argument('--ui',
                       action='store_true',
                       help='Launch the interactive Rich UI instead of CLI output')
+    parser.add_argument('--benchmark',
+                      action='store_true',
+                      help='Run benchmark mode: test APIs on multiple images and check determinism')
+    parser.add_argument('--test-image',
+                      help='Single image file to test (for benchmark mode)')
+    parser.add_argument('--limit',
+                      type=int,
+                      default=5,
+                      help='Limit number of images for benchmark mode (default: 5)')
 
     parser.add_argument('--debug',
                       action='store_true',
@@ -104,6 +116,178 @@ def cli_run(root: Path, api_providers: list[str], size: int):
                 engine.cache.set(path, result, api_provider, size)
 
 
+def benchmark_single_image(image_path: Path, api_providers: list[str], size: int, rounds: int = 3) -> Dict[str, Any]:
+    """Benchmark a single image across multiple APIs and rounds."""
+    from image_cleanup_tool.api import ImageProcessor, get_client
+    
+    results = {}
+    
+    for api_provider in api_providers:
+        logger.info(f"Benchmarking {api_provider} on {image_path.name} ({rounds} rounds)...")
+        
+        try:
+            api_client = get_client(api_provider)
+            b64 = ImageProcessor.load_and_encode_image(str(image_path), size)
+            
+            round_results = []
+            total_time = 0
+            
+            for round_num in range(rounds):
+                start_time = time.time()
+                result, token_usage = api_client.analyze_image(b64)
+                end_time = time.time()
+                
+                round_time = end_time - start_time
+                total_time += round_time
+                
+                round_results.append({
+                    'round': round_num + 1,
+                    'time': round_time,
+                    'result': result,
+                    'tokens': token_usage
+                })
+                
+                decision = result.get('decision', 'unknown')
+                keep_pct = result.get('confidence_keep', 0.0) * 100
+                delete_pct = result.get('confidence_delete', 0.0) * 100
+                unsure_pct = result.get('confidence_unsure', 0.0) * 100
+                logger.info(f"  Round {round_num + 1}: {round_time:.2f}s - {decision} (K:{keep_pct:.0f}% D:{delete_pct:.0f}% U:{unsure_pct:.0f}%)")
+            
+            avg_time = total_time / rounds
+            
+            # Check determinism
+            decisions = [r['result'].get('decision') for r in round_results]
+            is_deterministic = len(set(decisions)) == 1
+            
+            # Extract probabilities from first round (they should be consistent)
+            first_result = round_results[0]['result'] if round_results else {}
+            probabilities = {
+                'keep': first_result.get('confidence_keep', 0.0),
+                'delete': first_result.get('confidence_delete', 0.0),
+                'unsure': first_result.get('confidence_unsure', 0.0)
+            }
+            
+            results[api_provider] = {
+                'avg_time': avg_time,
+                'total_time': total_time,
+                'rounds': round_results,
+                'is_deterministic': is_deterministic,
+                'decisions': decisions,
+                'probabilities': probabilities,
+                'tokens': round_results[0]['tokens'] if round_results else {}
+            }
+            
+        except Exception as e:
+            logger.error(f"Error benchmarking {api_provider}: {e}")
+            results[api_provider] = {'error': str(e)}
+    
+    return results
+
+
+def benchmark_multiple_images(root: Path, api_providers: list[str], size: int, limit: int) -> Dict[str, Any]:
+    """Benchmark multiple images from a directory."""
+    engine = ImageScanEngine(root)
+    engine.scan_files()
+    
+    # Get first N image files
+    image_files = engine.image_paths[:limit]
+    
+    if not image_files:
+        logger.error("No image files found in directory")
+        return {}
+    
+    logger.info(f"Benchmarking {len(image_files)} images with {len(api_providers)} APIs...")
+    
+    all_results = {}
+    
+    for i, image_path in enumerate(image_files, 1):
+        logger.info(f"\n--- Image {i}/{len(image_files)}: {image_path.name} ---")
+        all_results[str(image_path)] = benchmark_single_image(image_path, api_providers, size, rounds=3)
+    
+    return all_results
+
+
+def print_benchmark_summary(results: Dict[str, Any]):
+    """Print a summary of benchmark results."""
+    print("\n" + "="*60)
+    print("BENCHMARK SUMMARY")
+    print("="*60)
+    
+    if not results:
+        print("No results to display.")
+        return
+    
+    # Calculate averages across all images
+    api_stats = {}
+    
+    for image_path, image_results in results.items():
+        for api_name, api_result in image_results.items():
+            if 'error' in api_result:
+                continue
+                
+            if api_name not in api_stats:
+                api_stats[api_name] = {
+                    'total_time': 0,
+                    'count': 0,
+                    'deterministic_count': 0,
+                    'total_images': 0
+                }
+            
+            api_stats[api_name]['total_time'] += api_result['total_time']
+            api_stats[api_name]['count'] += len(api_result['rounds'])
+            api_stats[api_name]['total_images'] += 1
+            
+            if api_result['is_deterministic']:
+                api_stats[api_name]['deterministic_count'] += 1
+    
+    # Print API comparison
+    print("\nAPI Performance Comparison:")
+    print("-" * 40)
+    
+    for api_name, stats in api_stats.items():
+        avg_time = stats['total_time'] / stats['count'] if stats['count'] > 0 else 0
+        determinism_pct = (stats['deterministic_count'] / stats['total_images']) * 100 if stats['total_images'] > 0 else 0
+        
+        print(f"{api_name.upper():<10} | Avg: {avg_time:.2f}s | Deterministic: {determinism_pct:.1f}%")
+    
+    # Print detailed results for each image
+    print("\nDetailed Results:")
+    print("-" * 40)
+    
+    for image_path, image_results in results.items():
+        print(f"\n{Path(image_path).name}:")
+        for api_name, api_result in image_results.items():
+            if 'error' in api_result:
+                print(f"  {api_name}: ERROR - {api_result['error']}")
+            else:
+                decisions = api_result['decisions']
+                decision_str = " → ".join(decisions) if len(set(decisions)) > 1 else decisions[0]
+                probabilities = api_result.get('probabilities', {})
+                keep_pct = probabilities.get('keep', 0.0) * 100
+                delete_pct = probabilities.get('delete', 0.0) * 100
+                unsure_pct = probabilities.get('unsure', 0.0) * 100
+                print(f"  {api_name}: {api_result['avg_time']:.2f}s - {decision_str}")
+                print(f"    Probabilities: Keep {keep_pct:.1f}% | Delete {delete_pct:.1f}% | Unsure {unsure_pct:.1f}%")
+
+
+def benchmark_mode(root: Path, api_providers: list[str], size: int, test_image: str = None, limit: int = 5):
+    """Run benchmark mode."""
+    if test_image:
+        # Test single image
+        image_path = Path(test_image)
+        if not image_path.exists():
+            logger.error(f"Test image not found: {image_path}")
+            return
+        
+        logger.info(f"Benchmarking single image: {image_path}")
+        results = {str(image_path): benchmark_single_image(image_path, api_providers, size, rounds=3)}
+    else:
+        # Test multiple images
+        results = benchmark_multiple_images(root, api_providers, size, limit)
+    
+    print_benchmark_summary(results)
+
+
 def main():
     args = parse_args()
     configure_logging(logging.DEBUG if args.debug else logging.INFO, enable_rich=args.ui)
@@ -117,7 +301,9 @@ def main():
     api_providers = parse_api_providers(args.api)
     logger.info(f"Using API provider(s): {', '.join(api_providers)}")
 
-    if args.ui:
+    if args.benchmark:
+        benchmark_mode(root, api_providers, args.size, args.test_image, args.limit)
+    elif args.ui:
         try:
             from image_cleanup_tool.ui import RichImageScannerUI
             RichImageScannerUI.run(root, api_providers, args.size)

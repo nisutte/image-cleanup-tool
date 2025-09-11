@@ -15,7 +15,7 @@ from openai import OpenAI
 import google.generativeai as genai
 
 from ..utils.log_utils import get_logger
-from .backbone import APIClient
+from .base import APIClient
 from .prompt import PROMPT_TEMPLATE
 
 logger = get_logger(__name__)

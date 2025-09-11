@@ -14,7 +14,7 @@ try:
 except Exception:
     pass
 
-from .core.backbone import ImageScanEngine
+from .core.scan_engine import ImageScanEngine
 from .api import (
     APIClient,
     ImageProcessor,

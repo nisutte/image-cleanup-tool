@@ -1,5 +1,5 @@
 """
-Backbone functionality for image processing and analysis.
+Base functionality for image processing and analysis.
 
 This module provides the core functionality for loading, encoding, and analyzing images
 using various AI APIs through a unified interface.

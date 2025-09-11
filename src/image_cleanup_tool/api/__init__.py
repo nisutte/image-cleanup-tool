@@ -5,7 +5,7 @@ This module provides a unified interface for various AI APIs through client clas
 and backbone functionality for image processing and analysis.
 """
 
-from .backbone import APIClient, ImageProcessor
+from .base import APIClient, ImageProcessor
 from .clients import ClaudeClient, OpenAIClient, GeminiClient, get_client
 from .prompt import PROMPT_TEMPLATE
 

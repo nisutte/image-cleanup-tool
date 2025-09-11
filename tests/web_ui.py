@@ -2,6 +2,8 @@
 """
 Web UI for comparing LLM image classification results.
 Serves a simple web interface to browse and compare model scores.
+
+This is a testing/development tool, not part of the main application.
 """
 
 import os

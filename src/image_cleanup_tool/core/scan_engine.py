@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-backbone.py: Core scanning and analysis logic for image-cleanup-tool.
+scan_engine.py: Core scanning and analysis logic for image-cleanup-tool.
 
 Provides ImageScanEngine that can scan a directory for images, count by extension,
 device, and capture date, check a persistent analysis cache, and run analysis on uncached images.

@@ -51,34 +51,16 @@ def select_bucket(entry: Dict[str, Any], model_key: str, thresh_delete: float,
         return 'unknown'
 
 
-def safe_destination(base_dir: Path, bucket: str, src_path: Path, preserve_tree: bool,
-                     on_collision: str) -> Path:
+def safe_destination(base_dir: Path, bucket: str, src_path: Path) -> Path:
     """Create a safe destination path for file operations."""
     bucket_dir = base_dir / bucket
     bucket_dir.mkdir(parents=True, exist_ok=True)
+    dest_path = bucket_dir / src_path.name
 
-    if preserve_tree:
-        # Use the source path relative to its drive root, but since we may not
-        # know the intended root, just replicate parent folders under the bucket.
-        rel_parts = src_path.parent.parts[-3:]  # keep last 3 dirs to avoid deep trees
-        dest_dir = bucket_dir.joinpath(*rel_parts)
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        dest_path = dest_dir / src_path.name
-    else:
-        dest_path = bucket_dir / src_path.name
-
+    # If file exists, skip it (safest option)
     if dest_path.exists():
-        if on_collision == 'skip':
-            return dest_path
-        if on_collision == 'overwrite':
-            return dest_path
-        # rename: append numeric suffix
-        stem = dest_path.stem
-        suffix = dest_path.suffix
-        counter = 1
-        while dest_path.exists():
-            dest_path = dest_path.with_name(f"{stem}_{counter}{suffix}")
-            counter += 1
+        return dest_path  # Return existing path, will be skipped
+    
     return dest_path
 
 
@@ -114,8 +96,7 @@ def calculate_cleanup_plan(cache_path: Path, model_key: str, thresh_delete: floa
 
 def execute_cleanup_phase_1(cache_path: Path, model_key: str, run_base: Path,
                            thresh_delete: float = 0.60, thresh_unsure: float = 0.50,
-                           thresh_low_keep: float = 0.75, preserve_tree: bool = False,
-                           on_collision: str = 'skip', limit: Optional[int] = None,
+                           thresh_low_keep: float = 0.75, limit: Optional[int] = None,
                            execute: bool = False, verbose: bool = False) -> bool:
     """Execute Phase 1: Copy files to review buckets."""
     try:
@@ -139,9 +120,7 @@ def execute_cleanup_phase_1(cache_path: Path, model_key: str, run_base: Path,
             if not bucket or bucket == 'keep':
                 continue
 
-            dest = safe_destination(
-                run_base, bucket, src, preserve_tree, on_collision
-            )
+            dest = safe_destination(run_base, bucket, src)
             planned.append((src, dest, bucket))
 
             if limit is not None and len(planned) >= limit:
@@ -156,48 +135,31 @@ def execute_cleanup_phase_1(cache_path: Path, model_key: str, run_base: Path,
         for _, dest, _ in planned:
             dest.parent.mkdir(parents=True, exist_ok=True)
 
-        # Load existing manifest
-        manifest_path = run_base / 'manifest.json'
-        manifest: Dict[str, str] = {}
-        if manifest_path.is_file():
-            try:
-                manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
-            except Exception:
-                manifest = {}
-
-        # Load cache to update copied_path
-        cache_data = json.loads(cache_path.read_text(encoding='utf-8'))
-        cache_entries = cache_data.get('entries', {})
+        copied_count = 0
+        skipped_count = 0
 
         for src, dest, bucket in planned:
+            # Skip if destination already exists
+            if dest.exists():
+                if verbose:
+                    print(f"SKIP: {src} -> {dest} (already exists)")
+                skipped_count += 1
+                continue
+
             cmd = build_cp_command(src, dest)
             if verbose:
                 print(' '.join(shlex.quote(c) for c in cmd))
                 print(f"  -> {dest}")
             if execute:
                 subprocess.run(cmd, check=True)
-            # Record manifest mapping
-            manifest[str(src)] = str(dest)
+                copied_count += 1
 
-        # Update cache with copied_path for entries we processed
-        for key, entry in cache_entries.items():
-            orig_path = entry.get('path')
-            if not orig_path:
-                continue
-            copied = manifest.get(orig_path)
-            if copied:
-                # Store per model_key copied target path under models[model_key]['copied_path']
-                models = entry.get('models') or {}
-                model = models.get(model_key)
-                if model is not None:
-                    model.setdefault('copied_path', str(copied))
-
-        if execute:
-            cache_path.write_text(json.dumps(cache_data, ensure_ascii=False, indent=2), encoding='utf-8')
-            manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding='utf-8')
-        elif verbose:
-            print("\nDry run only. Re-run with execute=True to write manifest and update cache.")
-            print(f"Would write manifest to: {manifest_path}")
+        if verbose:
+            print(f"\nPhase 1 Summary:")
+            print(f"  Copied: {copied_count} files")
+            print(f"  Skipped: {skipped_count} files (already exist)")
+            if not execute:
+                print("  Dry run only. Re-run with execute=True to copy files.")
 
         return True
 
@@ -210,62 +172,55 @@ def execute_cleanup_phase_1(cache_path: Path, model_key: str, run_base: Path,
 def execute_cleanup_phase_2(run_base: Path, execute: bool = False, verbose: bool = False) -> bool:
     """Execute Phase 2: Move remaining files to final deletion."""
     try:
-        manifest_path = run_base / 'manifest.json'
-        manifest: Dict[str, str] = {}
-        if manifest_path.is_file():
-            manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
-        else:
-            if verbose:
-                print('No manifest found for finalize; nothing to do.')
-            return False
-
         final_dir = run_base / 'final_deletion'
         final_dir.mkdir(parents=True, exist_ok=True)
 
-        actions: List[Tuple[Path, Path, Path]] = []  # (orig, copy, final_dest)
+        actions: List[Tuple[Path, Path]] = []  # (copy, final_dest)
         buckets_for_finalize = {'to_delete', 'unsure', 'low_keep', 'documents', 'unknown'}
-        for orig_str, copy_str in manifest.items():
-            orig = Path(orig_str)
-            copy = Path(copy_str)
-            if not copy.exists():
+        
+        # Scan bucket directories directly
+        for bucket in buckets_for_finalize:
+            bucket_dir = run_base / bucket
+            if not bucket_dir.exists():
                 continue
-            # Only finalize items whose copy is still inside review buckets
-            try:
-                copy_rel = copy.relative_to(run_base)
-            except Exception:
-                continue
-            if not (copy_rel.parts and copy_rel.parts[0] in buckets_for_finalize):
-                continue
-            if not orig.exists():
-                continue
-            final_dest = final_dir / orig.name
-            if final_dest.exists():
-                # add numeric suffix to avoid overwriting
-                stem, suffix = final_dest.stem, final_dest.suffix
-                counter = 1
-                while final_dest.exists():
-                    final_dest = final_dir / f"{stem}_{counter}{suffix}"
-                    counter += 1
-            actions.append((orig, copy, final_dest))
+                
+            for file_path in bucket_dir.iterdir():
+                if not file_path.is_file():
+                    continue
+                    
+                # Create final destination path
+                final_dest = final_dir / file_path.name
+                
+                # Handle name collisions
+                if final_dest.exists():
+                    stem, suffix = final_dest.stem, final_dest.suffix
+                    counter = 1
+                    while final_dest.exists():
+                        final_dest = final_dir / f"{stem}_{counter}{suffix}"
+                        counter += 1
+                
+                actions.append((file_path, final_dest))
 
         if not actions:
             if verbose:
                 print('No items to finalize.')
             return False
 
-        for orig, copy, final_dest in actions:
-            mv_cmd = build_move_command(orig, final_dest)
-            rm_copy_cmd = ['rm', str(copy)]
+        moved_count = 0
+        for copy, final_dest in actions:
+            mv_cmd = build_move_command(copy, final_dest)
             if verbose:
                 print(' '.join(shlex.quote(c) for c in mv_cmd))
-                print(' '.join(shlex.quote(c) for c in rm_copy_cmd))
-                print(f"  -> moved original to {final_dest} and removed copy {copy}")
+                print(f"  -> moved {copy} to {final_dest}")
             if execute:
                 subprocess.run(mv_cmd, check=True)
-                subprocess.run(rm_copy_cmd, check=True)
+                moved_count += 1
 
-        if not execute and verbose:
-            print("\nFinalize dry run only. Re-run with execute=True to execute.")
+        if verbose:
+            print(f"\nPhase 2 Summary:")
+            print(f"  Moved: {moved_count} files to final_deletion/")
+            if not execute:
+                print("  Dry run only. Re-run with execute=True to move files.")
         
         return True
 
@@ -283,7 +238,7 @@ def count_remaining_files(run_base: Path) -> Dict[str, int]:
     for bucket in buckets:
         bucket_dir = run_base / bucket
         if bucket_dir.exists():
-            count = len(list(bucket_dir.iterdir()))
+            count = len([f for f in bucket_dir.iterdir() if f.is_file()])
             if count > 0:
                 remaining_counts[bucket] = count
     

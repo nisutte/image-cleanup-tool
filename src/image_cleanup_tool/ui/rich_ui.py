@@ -21,7 +21,7 @@ from rich.table import Table
 from rich.prompt import Prompt
 from rich.align import Align
 
-from ..core.backbone import ImageScanEngine
+from ..core.scan_engine import ImageScanEngine
 from ..utils.log_utils import get_logger
 
 from ..core.file_operations import (
@@ -61,7 +61,6 @@ class RichImageScannerUI:
         self.cleanup_phase = 0  # 0: not started, 1: phase 1 complete, 2: phase 2 complete
         self.cleanup_bucket_counts: Dict[str, int] = {}
         self.run_base: Optional[Path] = None
-        self.manifest_path: Optional[Path] = None
 
     def _create_layout(self) -> Layout:
         """Create the main layout structure."""
@@ -363,7 +362,6 @@ class RichImageScannerUI:
         """Execute the actual file copying for Phase 1 using core logic."""
         try:
             self.run_base = Path('.') / 'image_cleanup_moves'
-            self.manifest_path = self.run_base / 'manifest.json'
             
             with Progress(
                 SpinnerColumn(),
@@ -393,9 +391,6 @@ class RichImageScannerUI:
 
     def _run_cleanup_phase_2(self) -> bool:
         """Run Phase 2: Move remaining files to final deletion."""
-        if not self.manifest_path or not self.manifest_path.exists():
-            self.console.print("[red]No manifest found for Phase 2![/red]")
-            return False
         
         # Count remaining files in buckets using core function
         remaining_counts = count_remaining_files(self.run_base)
@@ -619,7 +614,7 @@ class RichImageScannerUI:
                     logger.info("[red]Scan did not complete properly[/red]")
 
             # After analysis is complete, handle cleanup process
-            if self.total_analyzed > 0:
+            if len(self.engine.image_paths) > 0:
                 await self._handle_cleanup_process()
 
             # Show completion message and exit (outside Live context)
